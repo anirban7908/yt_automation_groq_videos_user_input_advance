@@ -4,11 +4,9 @@ import os
 from mutagen.mp3 import MP3
 from core.db_manager import DBManager
 
-MAX_RETRIES = 3  # Max attempts per scene before skipping
-RETRY_DELAY = 3  # Seconds to wait between retries
-MIN_AUDIO_DURATION = 0.5  # Minimum valid audio duration in seconds
-
-# Fallback voice used if the primary voice fails all retries
+MAX_RETRIES = 3
+RETRY_DELAY = 2
+MIN_AUDIO_DURATION = 0.5
 FALLBACK_VOICE = "en-US-GuyNeural"
 
 
@@ -17,61 +15,55 @@ class VoiceEngine:
         self.db = DBManager()
 
     async def _generate_single_segment(self, text, voice, path, rate="+10%"):
-        """
-        Generates a single TTS audio segment with retry logic.
-        Tries the primary voice first. If all retries fail, tries the fallback voice.
-        Returns (path, duration) on success, or raises on complete failure.
-        """
+        """Generates a single TTS audio segment with retry and fallback logic."""
         last_error = None
 
-        # ── Primary voice attempts ──
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                communicate = edge_tts.Communicate(text, voice, rate=rate)
-                await communicate.save(path)
-
-                # Validate the file was actually written and is a real MP3
-                if not os.path.exists(path) or os.path.getsize(path) < 1000:
-                    raise ValueError(f"Audio file too small or missing: {path}")
-
-                duration = MP3(path).info.length
-                if duration < MIN_AUDIO_DURATION:
-                    raise ValueError(f"Audio duration too short: {duration:.2f}s")
-
-                return path, duration
-
-            except Exception as e:
-                last_error = e
-                print(f"      ⚠️ Attempt {attempt}/{MAX_RETRIES} failed ({voice}): {e}")
-                if attempt < MAX_RETRIES:
-                    await asyncio.sleep(RETRY_DELAY)
-
-        # ── Fallback voice attempt (only if primary voice != fallback) ──
+        # ── Primary & Fallback Voice Attempts ──
+        voices_to_try = [voice]
         if voice != FALLBACK_VOICE:
-            print(f"      🔄 Trying fallback voice: {FALLBACK_VOICE}...")
-            try:
-                communicate = edge_tts.Communicate(text, FALLBACK_VOICE, rate=rate)
-                await communicate.save(path)
+            voices_to_try.append(FALLBACK_VOICE)
 
-                if not os.path.exists(path) or os.path.getsize(path) < 1000:
-                    raise ValueError("Fallback audio file too small or missing")
+        for current_voice in voices_to_try:
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    communicate = edge_tts.Communicate(text, current_voice, rate=rate)
+                    await communicate.save(path)
 
-                duration = MP3(path).info.length
-                if duration < MIN_AUDIO_DURATION:
-                    raise ValueError(
-                        f"Fallback audio duration too short: {duration:.2f}s"
-                    )
+                    if not os.path.exists(path) or os.path.getsize(path) < 1000:
+                        raise ValueError(f"File too small/missing: {path}")
 
-                print(f"      ✅ Fallback voice succeeded.")
-                return path, duration
+                    duration = MP3(path).info.length
+                    if duration < MIN_AUDIO_DURATION:
+                        raise ValueError(f"Duration too short: {duration:.2f}s")
 
-            except Exception as e:
-                last_error = e
-                print(f"      ❌ Fallback voice also failed: {e}")
+                    return path, duration
 
-        raise RuntimeError(
-            f"All voice attempts failed for scene. Last error: {last_error}"
-        )
+                except Exception as e:
+                    last_error = e
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_DELAY)
+
+            print(
+                f"      ⚠️ Failed with voice {current_voice}. Moving to next option..."
+            )
+
+        raise RuntimeError(f"All attempts failed for scene. Last error: {last_error}")
+
+    async def _process_scene_task(self, i, scene, folder, selected_voice):
+        """Worker function for a single scene to be used in parallel gathering."""
+        filename = f"voice_{i}.mp3"
+        path = os.path.join(folder, filename)
+        text = scene["text"]
+
+        try:
+            audio_path, duration = await self._generate_single_segment(
+                text, selected_voice, path
+            )
+            scene["audio_path"] = audio_path
+            scene["duration"] = duration
+            return scene, None  # Success
+        except Exception as e:
+            return None, (i + 1, str(e))  # Failure info
 
     async def generate_audio(self):
         task = self.db.collection.find_one({"status": "scripted"})
@@ -79,59 +71,40 @@ class VoiceEngine:
             return
 
         folder = task.get("folder_path")
+        os.makedirs(folder, exist_ok=True)  # Ensure directory exists
+
         scenes = task.get("script_data", [])
-        niche = task.get("niche", "general").lower()
         selected_voice = task.get("voice_model", FALLBACK_VOICE)
 
         print(
-            f"🎙️ Generating Audio ({len(scenes)} segments) "
-            f"using '{selected_voice}' for niche '{niche}'..."
+            f"🎙️ Generating Audio ({len(scenes)} segments) in parallel using '{selected_voice}'..."
         )
+
+        # ── Create and Run Tasks Simultaneously ──
+        tasks = [
+            self._process_scene_task(i, scene, folder, selected_voice)
+            for i, scene in enumerate(scenes)
+        ]
+
+        results = await asyncio.gather(*tasks)
 
         updated_scenes = []
         failed_scenes = []
 
-        for i, scene in enumerate(scenes):
-            filename = f"voice_{i}.mp3"
-            path = os.path.join(folder, filename)
-            text = scene["text"]
-
-            try:
-                audio_path, duration = await self._generate_single_segment(
-                    text, selected_voice, path
-                )
-
-                scene["audio_path"] = audio_path
-                scene["duration"] = duration
-
-                img_count = scene.get("image_count", 4)
-                img_duration = duration / img_count
-
-                updated_scenes.append(scene)
-                print(
-                    f"   ✅ Seg {i+1}/{len(scenes)}: {duration:.1f}s "
-                    f"→ {img_count} visuals (~{img_duration:.1f}s each)"
-                )
-
-            except Exception as e:
-                print(f"   ❌ Scene {i+1} failed permanently: {e}")
-                failed_scenes.append(i + 1)
-                # Still append the scene without audio so pipeline can decide
-                # whether to continue or abort (handled by main.py status check)
+        for scene_result, error_result in results:
+            if scene_result:
+                updated_scenes.append(scene_result)
+            else:
+                failed_scenes.append(error_result)
 
         if failed_scenes:
-            print(
-                f"⚠️ {len(failed_scenes)} scene(s) failed audio generation: {failed_scenes}"
-            )
-
-        if not updated_scenes:
-            print("❌ No scenes successfully generated. Aborting audio step.")
+            print(f"❌ Audio generation failed for scenes: {failed_scenes}")
+            print("🚨 Aborting: Status will NOT be updated to 'voiced'.")
             return
 
+        # ── Success: Atomic Update ──
         self.db.collection.update_one(
             {"_id": task["_id"]},
             {"$set": {"script_data": updated_scenes, "status": "voiced"}},
         )
-        print(
-            f"✅ Audio Generation Complete. ({len(updated_scenes)}/{len(scenes)} scenes)"
-        )
+        print(f"✅ Audio Generation Complete. ({len(updated_scenes)} scenes)")
