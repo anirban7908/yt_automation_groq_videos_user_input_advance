@@ -1,0 +1,67 @@
+File: db_manager.py
+
+1. What it does?
+This file is the "Hippocampus" or "Memory System" of your automation pipeline. It manages all long-term storage and organization.
+It performs three critical functions:
+1. **Storage:** It connects to your MongoDB database to save news stories, scripts, and video status.
+2. **Organization:** It automatically creates a structured folder system on your computer (e.g., `data/2026-02-16/noon/title_of_video/`) to keep your audio and image files organized.
+3. **The Gatekeeper:** It prevents duplicates. Before adding any new story, it checks if you have covered a similar topic recently, ensuring your channel doesn't upload the same news twice.
+
+2. What are the libraries used?
+Here are the libraries imported in this file and why they are used:
+
+* pymongo (MongoClient)
+  - Definition: The official Python driver for MongoDB.
+  - Why used here?: It allows the Python script to insert documents (`insert_one`) and search for existing tasks (`find_one`) in your database.
+
+* difflib
+  - Definition: A standard Python library for comparing data sequences.
+  - Why used here?: This is the "Fuzzy Logic" engine. Instead of just checking if "Apple iPhone" == "Apple iPhone", it checks if they are **85% similar**. This catches duplicates like "Apple Releases iPhone" vs "New iPhone Released".
+
+* datetime, timedelta
+  - Definition: Modules for handling dates and time intervals.
+  - Why used here?:
+    1. Timestamps: It adds a `created_at` time to every task.
+    2. Optimization: It calculates the "7-Day Window" (`datetime.now() - timedelta(days=7)`). This ensures the bot only checks recent videos for duplicates, preventing the server from crashing as your database grows.
+
+* re (Regular Expressions)
+  - Definition: A tool for pattern matching in text.
+  - Why used here?: Used in `sanitize_filename` to strip out illegal characters (like `?`, `/`, `:`) from video titles so they can be safely used as folder names on Windows/Linux.
+
+* os
+  - Definition: Operating System interface.
+  - Why used here?: It creates the physical folders on your hard drive (`os.makedirs`) where the MP3s and images will be stored.
+
+* dotenv
+  - Definition: A security library.
+  - Why used here?: It loads your `MONGO_URI` connection string from a hidden `.env` file so your password isn't exposed in the code.
+
+3. Which is the main function and what does it do?
+
+Main Function: add_task(self, title, content, ...)
+
+Description:
+This is the entry point for saving data.
+1. The Check: It first calls `task_exists(title)` to see if this story is a duplicate.
+2. The Rejection: If it is a duplicate, it prints a warning and stops immediately.
+3. The Setup: If it's new, it calls `get_video_folder` to create the physical directories on your computer.
+4. The Save: It packages all the info (Title, Summary, Folder Path, Niche, Status) into a dictionary and saves it to MongoDB.
+
+Helper Functions & Components Discussion:
+
+* task_exists(self, new_title)
+  - Purpose: The Smart Duplicate Filter.
+  - How it works (The 3-Layer Defense):
+    1. **Exact Match:** Checks if the exact title exists. Fast.
+    2. **Time Filter:** Fetches only videos made in the **last 7 days**. This reduces the search list from 100,000 items to just ~20 items.
+    3. **Fuzzy Match:** Uses `difflib` to compare the new title against those 20 recent items. If similarity > 85%, it blocks the task.
+
+* sanitize_filename(self, name)
+  - Purpose: File System Safety.
+  - How it works: It replaces spaces with underscores and removes special characters.
+  - Why?: A title like "Update: What's new?" is a valid YouTube title, but an illegal folder name (due to `: ` and `?`). This function converts it to `Update_Whats_new`.
+
+* get_video_folder(self, slot, title)
+  - Purpose: Dynamic Organization.
+  - How it works: It creates a path like `data/DD-MM-YYYY/SLOT/TITLE`.
+  - Why?: This ensures every video has its own clean workspace.

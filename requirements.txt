@@ -1,0 +1,49 @@
+# ──────────────────────────────────────────────
+# Audio & Video Processing
+# ──────────────────────────────────────────────
+edge-tts                  # voice.py — text-to-speech generation
+moviepy>=2.0.0            # assembler.py — video editing and clip assembly
+mutagen                   # voice.py — MP3 metadata and duration reading
+openai-whisper            # assembler.py — word-level audio transcription for captions
+
+# ──────────────────────────────────────────────
+# Computer Vision & Image Processing
+# ──────────────────────────────────────────────
+Pillow                    # visuals.py & assembler.py — frame-by-frame image effects and text drawing
+numpy                     # assembler.py — frame array manipulation
+opencv-python             # assembler.py — motion scoring and video frame reading (cv2)
+torch                     # assembler.py — CLIP and Whisper CPU/GPU thread control
+
+# ──────────────────────────────────────────────
+# AI & LLM Integration
+# ──────────────────────────────────────────────
+groq                      # brain.py & scraper.py — LLM calls via Groq API
+# Note: CLIP is installed from GitHub, not PyPI. Run:
+# pip install git+https://github.com/openai/CLIP.git
+
+# ──────────────────────────────────────────────
+# Database & Environment
+# ──────────────────────────────────────────────
+pymongo                   # db_manager.py — MongoDB connection and queries
+python-dotenv             # db_manager.py & visuals.py — .env file loading
+certifi                   # db_manager.py — secure MongoDB SSL/TLS connections
+
+# ──────────────────────────────────────────────
+# Web Scraping & Networking
+# ──────────────────────────────────────────────
+beautifulsoup4            # scraper.py — extracting full article text from HTML
+feedparser                # scraper.py — RSS feed parsing
+requests                  # scraper.py & visuals.py — HTTP requests to APIs
+cloudscraper              # scraper.py — bypasses Cloudflare/403 bot protection
+
+# ──────────────────────────────────────────────
+# YouTube API & Google Auth
+# ──────────────────────────────────────────────
+google-api-python-client  # uploader.py — YouTube Data API v3
+google-auth-oauthlib      # uploader.py — OAuth2 flow for YouTube authentication
+google-auth               # uploader.py — Google credential management
+
+# ──────────────────────────────────────────────
+# Automation & Scheduling
+# ──────────────────────────────────────────────
+schedule                  # scheduler.py — triggers daily pipeline jobs

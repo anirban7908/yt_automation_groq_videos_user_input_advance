@@ -1,0 +1,264 @@
+YouTube Upload Automation Guide
+Project: Automated YouTube Uploader
+Language: Python
+API: YouTube Data API v3
+
+Part 1: Google Cloud Setup (One-Time)
+Before the code works, you must get permission from Google to upload on your behalf.
+
+Go to Google Cloud Console: https://console.cloud.google.com/
+
+Create Project: Click the dropdown at the top → New Project → Name it "YouTube Automation".
+
+Enable API:
+
+Go to APIs & Services → Library.
+
+Search for "YouTube Data API v3".
+
+Click Enable.
+
+Configure OAuth Screen:
+
+Go to APIs & Services → OAuth Consent Screen.
+
+Select External → Create.
+
+Fill in "App Name" (e.g., "UploaderBot") and your email.
+
+IMPORTANT: Under "Test Users", click Add Users and type the exact Google email address of the YouTube channel you want to upload to. (Without this, the app will fail).
+
+Get Credentials:
+
+Go to APIs & Services → Credentials.
+
+Click Create Credentials → OAuth Client ID.
+
+Application Type: Desktop App.
+
+Name: "Python Uploader".
+
+Click Create.
+
+Download the JSON file (it will look like client_secret_xxxxx.json).
+
+Rename it to exactly: client_secrets.json.
+
+Move this file into your project folder next to your Python scripts.
+
+Part 2: Installation
+Open your terminal or command prompt and run this command to install Google's official libraries:
+pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-httplib2
+
+
+Gemini said
+Here is your complete guide in a copy-paste-friendly format. You can copy this directly into a Google Doc or a text file for your documentation.
+
+YouTube Upload Automation Guide
+Project: Automated YouTube Uploader
+Language: Python
+API: YouTube Data API v3
+
+Part 1: Google Cloud Setup (One-Time)
+Before the code works, you must get permission from Google to upload on your behalf.
+
+Go to Google Cloud Console: https://console.cloud.google.com/
+
+Create Project: Click the dropdown at the top → New Project → Name it "YouTube Automation".
+
+Enable API:
+
+Go to APIs & Services → Library.
+
+Search for "YouTube Data API v3".
+
+Click Enable.
+
+Configure OAuth Screen:
+
+Go to APIs & Services → OAuth Consent Screen.
+
+Select External → Create.
+
+Fill in "App Name" (e.g., "UploaderBot") and your email.
+
+IMPORTANT: Under "Test Users", click Add Users and type the exact Google email address of the YouTube channel you want to upload to. (Without this, the app will fail).
+
+Get Credentials:
+
+Go to APIs & Services → Credentials.
+
+Click Create Credentials → OAuth Client ID.
+
+Application Type: Desktop App.
+
+Name: "Python Uploader".
+
+Click Create.
+
+Download the JSON file (it will look like client_secret_xxxxx.json).
+
+Rename it to exactly: client_secrets.json.
+
+Move this file into your project folder next to your Python scripts.
+
+Part 2: Installation
+Open your terminal or command prompt and run this command to install Google's official libraries:
+
+Bash
+pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-httplib2
+Part 3: The Script (uploader.py)
+Create a new file named uploader.py and paste the following code:
+    import os
+    import pickle
+    import time
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+    from core.db_manager import DBManager
+
+    class YouTubeUploader:
+        def __init__(self):
+            self.db = DBManager()
+            # This scope allows us to Manage (Upload/Edit) your YouTube videos
+            self.SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+            self.api_service_name = "youtube"
+            self.api_version = "v3"
+            self.client_secrets_file = "client_secrets.json"
+            self.token_file = "token.pickle"  # Stores your login session
+            
+            self.youtube = self.get_authenticated_service()
+
+        def get_authenticated_service(self):
+            """Handles the OAuth2 Login flow seamlessly."""
+            creds = None
+            # 1. Check if we have a saved login token
+            if os.path.exists(self.token_file):
+                with open(self.token_file, "rb") as token:
+                    creds = pickle.load(token)
+
+            # 2. If no valid login, open browser to log in
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        self.client_secrets_file, self.SCOPES
+                    )
+                    # Opens a local web server to catch the login response
+                    creds = flow.run_local_server(port=0)
+
+                # 3. Save the login for next time
+                with open(self.token_file, "wb") as token:
+                    pickle.dump(creds, token)
+
+            return build(self.api_service_name, self.api_version, credentials=creds)
+
+        def upload_video(self):
+            # 1. Find a video that is packaged and ready
+            task = self.db.collection.find_one({"status": "completed_packaged"})
+            
+            if not task:
+                print("📭 No packaged videos found to upload.")
+                return
+
+            print(f"🚀 Starting Upload for: {task['title']}")
+            
+            video_path = task.get("final_video_path")
+            if not os.path.exists(video_path):
+                print("❌ Error: Video file not found on disk.")
+                return
+
+            # 2. Prepare Metadata (Title, Description, Tags)
+            # Category ID 28 = Science & Technology
+            # Category ID 22 = People & Blogs
+            # Category ID 20 = Gaming
+            request_body = {
+                "snippet": {
+                    "categoryId": "28",
+                    "title": task["title"][:100], # YouTube limit is 100 chars
+                    "description": f"{task['content'][:4000]}\n\n#Shorts\n\nSource: {task.get('source_url', '')}",
+                    "tags": task.get("tags", "").split(",") + ["Shorts", "AI", "Tech"]
+                },
+                "status": {
+                    # ⚠️ 'private' is safest for testing. Change to 'public' when confident.
+                    "privacyStatus": "private",  
+                    "selfDeclaredMadeForKids": False
+                }
+            }
+
+            # 3. Upload File
+            media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+            
+            request = self.youtube.videos().insert(
+                part="snippet,status",
+                body=request_body,
+                media_body=media
+            )
+
+            try:
+                print("   ⏳ Uploading... (This may take a minute)")
+                response = None
+                while response is None:
+                    status, response = request.next_chunk()
+                    if status:
+                        print(f"      Uploaded {int(status.progress() * 100)}%")
+
+                # 4. Success Handling
+                if "id" in response:
+                    video_id = response["id"]
+                    print(f"   ✅ Upload Successful! Video ID: {video_id}")
+                    print(f"   🔗 Link: https://youtu.be/{video_id}")
+
+                    # 5. Update Database with the new YouTube ID
+                    self.db.collection.update_one(
+                        {"_id": task["_id"]},
+                        {
+                            "$set": {
+                                "status": "uploaded",
+                                "youtube_id": video_id,
+                                "uploaded_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                            }
+                        }
+                    )
+                else:
+                    print(f"   ❌ Upload failed with unexpected response: {response}")
+
+            except Exception as e:
+                print(f"   ❌ API Error: {e}")
+
+    if __name__ == "__main__":
+        uploader = YouTubeUploader()
+        uploader.upload_video()
+
+Part 4: How to Run
+First Run (Manual Login):
+
+Run the script: python uploader.py
+
+Your default web browser will open.
+
+Log in with the Google Account that owns the YouTube channel.
+
+Security Warning: If you see "Google hasn't verified this app", click Advanced -> Go to YouTube Automation (unsafe). (This is normal because you created the app for yourself).
+
+Click Allow.
+
+The script will finish, and a file named token.pickle will appear in your folder.
+Subsequent Runs (Automated):
+
+Just run python uploader.py.
+
+It will use the saved token.pickle to log in automatically without opening the browser.
+
+Part 5: Important Limits & Notes
+Daily Quota: YouTube gives free accounts 10,000 units per day.
+
+1 Upload = 1,600 units.
+
+Limit: You can upload roughly 6 videos per day automatically.
+
+Privacy: The script sets videos to private by default. Once you trust the system, change "privacyStatus": "private" to "public" in the code.
+
+Shorts: YouTube automatically detects Shorts if the video is vertical (9:16) and under 60 seconds. You don't need a special setting, but adding #Shorts in the title/description helps.

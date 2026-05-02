@@ -1,0 +1,11 @@
+Sorted execution order:
+#TaskWhy this positionFiles affected
+1. Fix critical bugsActive bugs breaking every upload right nowuploader.py, assembler.py, voice.py
+2. Add scheduler/cronPipeline needs to run unattended before anything else mattersNew scheduler.py
+3. Telegram notificationsOnce scheduler runs, you need visibility without sitting at a terminalNew notifier.py
+4. Background music layerDirect retention impact — every video benefits immediatelyassembler.py
+5. Thumbnail generator3–5x click improvement — needs assembler stable firstNew thumbnail.py
+6. Fix optimization issuesAsync downloads + parallel scenes — needs stable foundation firstassembler.py, visuals.py, voice.py, brain.py
+7. A/B title testing + analytics feedback loopNeeds videos uploaded first to have data to testuploader.py, brain.py, new analytics.py
+8. Multi-platform publishingSame video → Instagram/TikTok/FacebookNew publisher.py
+9. Laravel 12 dashboardMakes sense only when all other pieces are running and producing dataNew Laravel project

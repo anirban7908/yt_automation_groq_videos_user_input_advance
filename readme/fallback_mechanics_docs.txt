@@ -1,0 +1,18 @@
+YOUTUBE AUTOMATION PROJECT - MODULE DOCUMENTATION
+===============================================
+Module: Error Handling and Fallback Mechanics
+
+Q: What happens if the AI fails to generate visual keywords for a scene?
+A: In `core/visuals.py`, the `download_visuals` function uses a dynamic dictionary `.get()` method. 
+   Code: `keywords = scene.get("keywords", [task.get("title", "Breaking News")])`
+   Explanation: This line checks the current scene's JSON dictionary for the key "keywords". If the AI hallucinated and forgot to include that key, it triggers the fallback. Instead of defaulting to a hardcoded string like "nature", it dynamically pulls the `title` of the current database task (e.g., "Moscow Explosion"). This guarantees that even in the event of an AI formatting failure, the visual search remains contextually locked to the news story.
+
+Q: How do we prevent the AI from dropping JSON keys during the Call to Action?
+A: In `core/brain.py`, Rule 7 of the Master Prompt acts as a strict schema enforcer.
+   Code: `Even though this is the final scene, you MUST output the 'keywords' array and 'image_count' integer...`
+   Explanation: Large Language Models often suffer from "instruction fatigue" by the end of a long prompt. When instructed to write a CTA, the AI shifts its focus to marketing copy and forgets the structural JSON rules defined earlier. Explicitly reminding the model to include `keywords` and `image_count` in the CTA rule specifically forces it to satisfy both the creative and structural requirements.
+
+Q: How does `visuals.py` prevent video duplication?
+A: Through state tracking using the `already_used_urls` list.
+   Code: `if video_url in already_used_urls: continue`
+   Explanation: Before downloading a `.mp4` from Pexels, the `use_pexels_video_search` function checks if the URL exists in the history list. If it does, the `continue` statement forces the loop to skip to the next video in the API response, ensuring every scene gets completely unique B-roll footage.

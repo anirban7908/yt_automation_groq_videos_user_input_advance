@@ -1,0 +1,16 @@
+YOUTUBE AUTOMATION PROJECT - MODULE DOCUMENTATION
+===============================================
+Module: High-Retention Scripting and Visual Literalism
+
+1. The "Dumb Search" Rule
+Stock footage APIs (Pexels, Unsplash) utilize literal keyword matching, not semantic understanding.
+- Problem: Abstract queries (e.g., "Fermi Paradox", "Economic Stagnation") yield highly unpredictable, often comedic results (like monkeys or makeup vloggers) because the API matches single words like "Zoo" or "Subscribe."
+- Solution: The Brain's prompt now enforces "Visual Literalism." The AI acts as a translator, converting abstract narrative concepts into basic, physical, cinematic nouns (e.g., translating "Economic Stagnation" to "Empty wallet" or "Cinematic empty street").
+
+2. The Pattern-Interrupt Hook
+Short-form content requires an immediate pattern interrupt to secure viewer retention within the first 3 seconds.
+- Implementation: The Brain is explicitly forbidden from starting with theoretical questions or textbook summaries. It must synthesize the news into a bold, controversial, or highly mysterious statement to break the user's scrolling rhythm.
+
+3. HTML Sanitization
+Feeding raw HTML (tags like <p>, <img>) to the LLM consumes unnecessary tokens and degrades the model's reasoning capabilities.
+- Implementation: A Regex cleaner (`re.sub(r'<[^>]+>', '', raw_summary)`) acts as a fail-safe in the Scraper to ensure the Brain only processes pure narrative text.

@@ -1,0 +1,27 @@
+YOUTUBE AUTOMATION PROJECT - MODULE DOCUMENTATION
+===============================================
+File: core/uploader.py
+
+1. What it does?
+This file is the "Broadcaster" of your automation pipeline. Its sole responsibility is to securely connect to your YouTube channel using the Google YouTube Data API v3 and upload the final, packaged video. 
+Key Features: It handles complex OAuth 2.0 authentication (logging you in securely without exposing your password), dynamically assigns the correct YouTube Category ID based on the video's niche, and uploads the video in 4MB chunks so the upload can automatically recover if your internet connection briefly drops.
+
+2. What are the libraries used?
+* os, pickle, time: Standard Python libraries. `os` handles file paths. `pickle` is used to securely save and load your YouTube login token (`token.pickle`) so you don't have to log in every time. `time` is used to pause the script before retrying a failed upload.
+* google_auth_oauthlib.flow & google.auth.transport.requests: These handle the OAuth 2.0 login process. They open the web browser to ask for your permission and refresh your access token when it expires.
+* googleapiclient.discovery & googleapiclient.http: The official Google API libraries. `discovery` builds the connection to YouTube, and `http.MediaFileUpload` prepares the actual .mp4 file to be sent over the internet in manageable chunks.
+* core.db_manager.DBManager: Your custom database handler. Fetches tasks with the status "completed_packaged" and marks them as "uploaded" once YouTube confirms receipt.
+
+3. Which is the main function and what does it do?
+Main Function: upload_video(self)
+This is the core upload logic:
+  1. Fetching: Looks for a task marked "completed_packaged" in the database.
+  2. Categorization: Reads the niche (e.g., "space") and maps it to a YouTube Category ID (e.g., "28" for Science & Technology).
+  3. Sanitization: Cleans the AI-generated description by removing any unsafe characters (like `<` or `>`) that might cause the YouTube API to reject the text.
+  4. The Payload: Builds the `request_body`, which is a JSON dictionary containing the title, description, tags, and privacy status (set to "private" so you can review it before publishing).
+  5. Chunked Upload: Uses `MediaFileUpload` to slice the video into 4MB chunks. It uses a `while` loop to send these chunks one by one. If the internet drops, the `except` block catches the error, waits 5 seconds, and resumes exactly where it left off.
+  6. Saving: Once YouTube returns a successful `video_id`, it logs that ID into your database and marks the task as "uploaded".
+
+4. Helper Functions & Key Variables
+* get_authenticated_service(self): The Bouncer. It checks if you have a valid `token.pickle` file. If the token is expired, it refreshes it. If the token is missing entirely, it opens a local web server to prompt you to log into Google.
+* CATEGORY_MAP: A dictionary that translates your readable niche names into the specific integer IDs that YouTube requires (e.g., "motivation" -> "22").

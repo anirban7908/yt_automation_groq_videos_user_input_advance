@@ -1,0 +1,24 @@
+YOUTUBE AUTOMATION PROJECT - MODULE DOCUMENTATION
+===============================================
+File: scheduler.py
+
+1. What it does?
+This file is the "Autopilot" or "Clockwork" of your pipeline. Instead of you having to sit at your computer and manually type `python main.py` multiple times a day, this script runs continuously in the background. It watches the clock and automatically fires off the `main.py` script at 6 specific times every single day.
+
+2. What are the libraries used?
+* schedule: A lightweight, human-readable Python scheduling library. It allows you to write commands like `schedule.every().day.at("08:00")`, making the timing extremely easy to read and adjust.
+* time: Used for the `time.sleep(60)` command. This puts the script to sleep for 60 seconds after checking the clock, preventing it from consuming 100% of your computer's CPU while it waits for the next appointment.
+* subprocess: A powerful system library that allows one Python script to open and run another entirely separate Python script. 
+* sys: Used to find `sys.executable`. This finds the exact path to your project's virtual environment (venv) Python file, ensuring the scheduled jobs run with all your installed libraries (like MoviePy and Groq).
+* datetime: Used purely for logging, printing the exact current time to the console right before a job starts.
+
+3. Which is the main function and what does it do?
+Main Function: job(slot)
+This is the action triggered by the schedule:
+  1. Timestamping: Generates a readable timestamp and prints an alert to the console (e.g., "TRIGGERING AUTOMATION: 8_AM").
+  2. The Subprocess Command: It uses `subprocess.run` to execute the master script. The command it builds looks like this: `[path/to/venv/python.exe, "main.py", "8_am"]`.
+  3. Error Catching: By setting `check=True`, if `main.py` crashes for any reason (like an Out of Memory error or a disconnected internet), the subprocess throws a `CalledProcessError`, which is safely caught and printed so the main scheduler doesn't crash and die along with it.
+
+4. The Schedule Loop
+* schedule.every().day.at(...): Maps specific times on the 24-hour clock to specific `slot` variables (mid_night, 4_am, 8_am, mid_day, 4_pm, 8_pm).
+* while True: An infinite loop that keeps the program running forever. Inside the loop, `schedule.run_pending()` checks if it's time to run a job, and `time.sleep(60)` ensures the background process stays lightweight and silent.

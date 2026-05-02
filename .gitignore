@@ -1,0 +1,13 @@
+.env
+venv/
+data/
+backup
+__pycache__/
+core/__pycache__/
+core/client_secrets.json
+logs/
+*.mp4
+*.jpg
+core/client_secrets.json
+client_secrets.json
+*.pickle

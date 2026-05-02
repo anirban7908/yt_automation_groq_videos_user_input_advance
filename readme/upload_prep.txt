@@ -1,0 +1,24 @@
+YOUTUBE AUTOMATION PROJECT - MODULE DOCUMENTATION
+===============================================
+File: core/upload_prep.py
+
+1. What it does?
+This file is the "Logistics Manager" or "Packager" of your automation pipeline. Once a video is successfully rendered by the Assembler, this script prepares it for delivery to YouTube. It creates a complete "Upload Package" by generating a structured, easy-to-read text file right next to your video containing the AI-generated Title, Description, Tags, and Hashtags. It also maintains a permanent, timestamped log file (`logs/upload_history.log`) of every video processed.
+
+2. What are the libraries used?
+* os: Standard Operating System interface. Critical for file management. It checks if the final `.mp4` actually exists, creates the `logs` directory if it's missing, and writes the metadata text file (`_METADATA.txt`) in the exact same folder as the newly created video.
+* datetime: Standard date and time module. Used to generate precise timestamps for the log file (e.g., `[2026-02-24 14:30:00] SUCCESS...`), creating a permanent, searchable history of your pipeline's activity.
+* core.db_manager.DBManager: Your custom database handler. Fetches tasks with the status "ready_to_upload" and, after successfully writing the text file, updates the task status to "completed_packaged".
+
+3. Which is the main function and what does it do?
+Main Function: `prepare_package(self)`
+This function bundles the final assets:
+  1. Fetching: It queries the database for a task where status is "ready_to_upload".
+  2. Validation: It double-checks that the `final_video_path` exists on the hard drive. If the video is missing, it logs an error and stops.
+  3. Metadata Formatting: It pulls the AI-generated title, description, tags, hashtags, and the original news source URL from the database.
+  4. File Creation: It creates a new text file named after the video (e.g., `video.mp4` -> `video_METADATA.txt`) and writes the `seo_content` template into it.
+  5. Completion: It calls `log_status` to write a "SUCCESS" entry into the master log file and updates the database status to `completed_packaged`.
+
+4. Helper Functions & Key Variables
+* log_status(self, task_title, status, message): The Record Keeper. It appends a single line to `logs/upload_history.log` containing the exact time, the video title, whether it succeeded or failed, and a brief message. If a file goes missing, you can check this log days later to find out exactly when it happened.
+* seo_content (Variable): The Formatting Template. This is a multi-line string (f-string) that organizes the YouTube metadata into a highly readable, emoji-rich layout. It neatly separates the Title, Description, Link, Hashtags, and SEO Tags so you can easily review the AI's work before the final upload step.

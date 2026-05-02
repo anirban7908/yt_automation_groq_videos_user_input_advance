@@ -1,0 +1,59 @@
+File: verifier.py
+
+1. What it does?
+This file is the "Quality Assurance (QA) Inspector" of your automation pipeline. Just like a factory has a person checking products for defects, this script watches the final video to ensure it isn't "broken" before you upload it.
+
+It specifically looks for two major defects:
+1. **Black Screens:** Frames that are completely dark, indicating a rendering error.
+2. **Error Placeholders:** Frames that match the "Image Not Found" backup image (created in `visuals.py`). If it detects these, it fails the video so you don't upload bad content.
+
+2. What are the libraries used?
+Here are the libraries imported in this file and why they are used:
+
+* cv2 (OpenCV)
+  - Definition: The world's most popular computer vision library.
+  - Why used here?: It allows Python to "watch" the video. It opens the `.mp4` file, extracts individual frames (images), resizes them, and converts them to grayscale for analysis.
+
+* numpy
+  - Definition: A library for heavy mathematical operations and array handling.
+  - Why used here?: Images in Python are just grids of numbers. `numpy` is used to calculate the average brightness of a frame (`np.mean`) to detect black screens, and to create blank reference images (`np.zeros`).
+
+* skimage.metrics (ssim)
+  - Definition: Structural Similarity Index Measure (SSIM) from Scikit-Image.
+  - Why used here?: This is a "smart" comparison tool. Instead of checking if two images are *pixel-perfect* identical, it checks if they look *structurally* similar to the human eye. This accurately detects if a frame is the "Error Placeholder" image, even if compression has slightly changed the pixels.
+
+* os
+  - Definition: Operating System interface.
+  - Why used here?: Used to handle file paths, check if the video file exists, and rename bad videos (e.g., adding `_FAILED.mp4`) so you can identify them easily.
+
+* core.db_manager.DBManager
+  - Definition: Your custom database handler.
+  - Why used here?: Fetches tasks with status "completed" (just finished rendering) and updates them to either "ready_to_upload" (Pass) or "failed_qc" (Fail).
+
+3. Which is the main function and what does it do?
+
+Main Function: verify(self)
+
+Description:
+This function runs the inspection process.
+1. Fetching: It asks the DB for a "completed" task.
+2. Loading: It opens the video file using `cv2.VideoCapture`.
+3. Scanning Loop:
+   - It doesn't check every frame (too slow). It checks 1 frame every second (`step = int(fps)`).
+   - It grabs a frame and sends it to `is_frame_bad`.
+4. Decision Making:
+   - **If Bad:** It stops immediately, marks the DB status as `failed_qc`, logs the reason, and renames the file to `_FAILED.mp4`.
+   - **If Clean:** If it finishes the scan without errors, it marks the DB status as `ready_to_upload`.
+
+Helper Functions & Components Discussion:
+
+* is_frame_bad(self, frame)
+  - Purpose: The specific test logic for a single image.
+  - How it works:
+    1. **Black Screen Check:** Calculates `np.mean(frame)`. If the average pixel value is < 5 (pitch black), it returns True.
+    2. **Error Image Check:** It compares the current frame against the "Reference Bad Image". It resizes both to tiny thumbnails (100x100) for speed and calculates the `ssim` score. If >80% similar, it returns True.
+
+* _create_reference_image(self)
+  - Purpose: Setup helper.
+  - How it works: It checks if a reference "bad image" exists on your disk. If not, it creates a blank black image.
+  - **Note:** For best results, you should replace `assets/bad_frames/reference_error.jpg` with a screenshot of your actual "Image Not Found" graphic.
