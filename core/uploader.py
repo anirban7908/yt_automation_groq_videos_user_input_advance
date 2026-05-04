@@ -170,6 +170,19 @@ class YouTubeUploader:
             video_id = response["id"]
             print(f"   ✅ Upload Successful! Video ID: {video_id}")
 
+            folder = task.get("folder_path")
+            # 🟢 Set the Video Thumbnail
+            thumbnail_path = os.path.join(folder, "thumbnail.jpg")
+            if os.path.exists(thumbnail_path):
+                print("   🖼️ Uploading custom thumbnail...")
+                try:
+                    self.youtube.thumbnails().set(
+                        videoId=video_id, media_body=MediaFileUpload(thumbnail_path)
+                    ).execute()
+                    print("   ✅ Thumbnail set successfully!")
+                except Exception as e:
+                    print(f"   ⚠️ Thumbnail upload failed: {e}")
+
             self.db.collection.update_one(
                 {"_id": task["_id"]},
                 {

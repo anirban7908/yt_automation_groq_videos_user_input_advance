@@ -18,6 +18,10 @@ from core.db_manager import DBManager
 # 🟢 NEW: Import the modular standalone auth checker
 from auth_check import verify_and_refresh_token
 
+from core.thumbnail_gen import ThumbnailGenerator
+from core.meta_uploader import upload_to_facebook, upload_to_instagram
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "."))
 MODE_TIMEOUT = 60
 PROMPT_TIMEOUT = 300
 
@@ -399,11 +403,52 @@ def _run_post_script_steps(task, db, slot_name, is_manual):
 
     print("---------------------------------------")
     try:
+        from core.thumbnail_gen import ThumbnailGenerator
+
+        thumb_gen = ThumbnailGenerator()
+
+        # Build the absolute path using PROJECT_ROOT
+        folder = os.path.normpath(os.path.join(PROJECT_ROOT, task["folder_path"]))
+
+        # Generate the image
+        thumb_gen.generate_thumbnail(folder, task["title"], task.get("ai_tags", []))
+    except Exception as e:
+        print(f"⚠️ Thumbnail generation skipped: {e}")
+
+    print("---------------------------------------")
+    youtube_success = False
+    try:
         uploader = YouTubeUploader()
         uploader.upload_video()
+        youtube_success = True
     except Exception as e:
         print(f"❌ YouTube upload failed: {e}")
         return False
+
+    if youtube_success:
+        print("---------------------------------------")
+        print("📱 STARTING META CROSS-POSTING (FB & IG)")
+
+        video_path = os.path.normpath(
+            os.path.join(PROJECT_ROOT, task["folder_path"], "final_video.mp4")
+        )
+        caption = f"{task['title']}\n\n#automation #AI #trending"
+
+        # 1. Facebook
+        try:
+            upload_to_facebook(video_path, caption)
+        except Exception as e:
+            print(f"⚠️ Meta FB Error: {e}")
+
+        # 2. Instagram
+        video_url = task.get("public_url")
+        if video_url:
+            try:
+                upload_to_instagram(video_url, caption)
+            except Exception as e:
+                print(f"⚠️ Meta IG Error: {e}")
+        else:
+            print("⏭️ Skipping Instagram: No public_url found in task data.")
 
     print("---------------------------------------")
     print("📝 Logging details...")
