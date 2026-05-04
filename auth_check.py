@@ -5,8 +5,11 @@ from google.auth.transport.requests import Request
 
 # Must match the scope used in uploader.py exactly
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-CLIENT_SECRETS_FILE = "client_secrets.json"
-TOKEN_FILE = "token.pickle"
+PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
+CLIENT_SECRETS_FILE = os.getenv(
+    "YOUTUBE_CLIENT_SECRETS_FILE", os.path.join(PROJECT_ROOT, "client_secrets.json")
+)
+TOKEN_FILE = os.getenv("YOUTUBE_TOKEN_FILE", os.path.join(PROJECT_ROOT, "token.pickle"))
 
 
 def verify_and_refresh_token():

@@ -1,7 +1,5 @@
 import os
-import time
 import requests
-import random
 import re
 import json
 import subprocess
@@ -10,7 +8,6 @@ from pathlib import Path
 from core.db_manager import DBManager
 from dotenv import load_dotenv
 from PIL import Image
-import io
 from core.ai_core import AIEngine
 
 load_dotenv()
@@ -80,8 +77,15 @@ def _download_chunked_sync(url, save_path, headers=None):
     try:
         with requests.get(url, stream=True, timeout=60, headers=headers) as r:
             r.raise_for_status()
+            content_length = int(r.headers.get("Content-Length", 0) or 0)
+            if content_length and content_length > MAX_SIZE_MB * 1024 * 1024:
+                raise ValueError(f"File exceeds MAX_DOWNLOAD_SIZE_MB: {url}")
+            downloaded = 0
             with open(save_path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=65536):
+                    downloaded += len(chunk)
+                    if downloaded > MAX_SIZE_MB * 1024 * 1024:
+                        raise ValueError(f"Download exceeded MAX_DOWNLOAD_SIZE_MB: {url}")
                     f.write(chunk)
         return save_path
     except Exception as e:
@@ -107,6 +111,104 @@ class VisualScout:
 
         # Prevents Groq 429 Rate Limits by allowing max 3 concurrent LLM evaluations
         self.ai_semaphore = asyncio.Semaphore(3)
+
+    NICHE_CONTEXT_TERMS = {
+        "tech_ai": [
+            "technology",
+            "artificial intelligence",
+            "software",
+            "data center",
+            "robotics",
+            "startup",
+            "digital infrastructure",
+        ],
+        "finance_economy": [
+            "finance",
+            "stock market",
+            "business",
+            "trading",
+            "economy",
+            "banking",
+        ],
+        "war_news": [
+            "military",
+            "defense",
+            "soldiers",
+            "geopolitics",
+            "conflict",
+            "documentary",
+        ],
+        "bizarre_facts": [
+            "science",
+            "unusual",
+            "real world",
+            "documentary",
+            "facts",
+        ],
+        "space": [
+            "space",
+            "astronomy",
+            "nasa",
+            "telescope",
+            "orbit",
+            "planet",
+        ],
+    }
+
+    DOMAIN_BLOCK_TERMS = {
+        "tech_ai": {
+            "marine",
+            "ocean",
+            "sea",
+            "coral",
+            "reef",
+            "fish",
+            "forest",
+            "wildlife",
+            "jungle",
+            "river",
+        },
+        "finance_economy": {
+            "wildlife",
+            "forest",
+            "ocean",
+            "reef",
+            "fish",
+            "animal",
+            "landscape",
+        },
+        "war_news": {
+            "game",
+            "toy",
+            "airsoft",
+            "paintball",
+            "cartoon",
+            "festival",
+        },
+        "space": {
+            "ocean",
+            "sea",
+            "fish",
+            "forest",
+            "wildlife",
+            "underwater",
+        },
+    }
+
+    GENERIC_VISUAL_WORDS = {
+        "cinematic",
+        "realistic",
+        "dramatic",
+        "modern",
+        "closeup",
+        "close",
+        "wide",
+        "shot",
+        "scene",
+        "video",
+        "background",
+        "concept",
+    }
 
     NASA_TRIGGERS = {
         "asteroid",
@@ -270,18 +372,100 @@ class VisualScout:
         except:
             return False
 
-    async def _ai_choose_best_visual(self, keyword, candidates, source_type):
-        if not candidates or len(candidates) <= 1:
-            return 0
+    def _clean_terms(self, text):
+        words = re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", str(text).lower())
+        return [w for w in words if w not in self.GENERIC_VISUAL_WORDS]
+
+    def _build_context_query(self, keyword, niche, scene_text="", all_keywords=None):
+        all_keywords = all_keywords or []
+        parts = [keyword]
+        parts.extend([kw for kw in all_keywords if kw != keyword][:2])
+        parts.extend(self.NICHE_CONTEXT_TERMS.get(niche, [])[:4])
+
+        scene_terms = self._clean_terms(scene_text)
+        for term in scene_terms:
+            if term not in parts and len(parts) < 12:
+                parts.append(term)
+
+        seen = set()
+        query_terms = []
+        for part in parts:
+            clean = str(part).strip()
+            key = clean.lower()
+            if clean and key not in seen:
+                query_terms.append(clean)
+                seen.add(key)
+
+        return " ".join(query_terms[:12])
+
+    def _candidate_text(self, candidate):
+        raw = candidate.get("raw", {})
+        extra = []
+        if isinstance(raw, dict):
+            for key in ("url", "tags", "title", "description", "alt", "slug"):
+                value = raw.get(key)
+                if value:
+                    extra.append(str(value))
+        return f"{candidate.get('description', '')} {' '.join(extra)}".lower()
+
+    def _rank_candidates(self, keyword, candidates, niche, scene_text=""):
+        if not candidates:
+            return []
+
+        required_terms = set(self._clean_terms(keyword))
+        required_terms.update(self._clean_terms(scene_text)[:8])
+        context_terms = set(
+            term
+            for phrase in self.NICHE_CONTEXT_TERMS.get(niche, [])
+            for term in self._clean_terms(phrase)
+        )
+        blocked_terms = self.DOMAIN_BLOCK_TERMS.get(niche, set())
+
+        ranked = []
+        for idx, candidate in enumerate(candidates):
+            text = self._candidate_text(candidate)
+            blocked_hits = sum(1 for term in blocked_terms if term in text)
+            required_hits = sum(1 for term in required_terms if term in text)
+            context_hits = sum(1 for term in context_terms if term in text)
+            score = required_hits * 3 + context_hits - blocked_hits * 5
+
+            if blocked_hits and not (required_hits or context_hits >= 2):
+                continue
+
+            ranked_candidate = dict(candidate)
+            ranked_candidate["_source_index"] = idx
+            ranked.append((score, idx, ranked_candidate))
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return [candidate for _, _, candidate in ranked[:5]]
+
+    async def _ai_choose_best_visual(
+        self, keyword, candidates, source_type, scene_text="", niche="default"
+    ):
+        if not candidates:
+            return None
+
+        candidates = self._rank_candidates(keyword, candidates, niche, scene_text)
+        if not candidates:
+            return None
+
+        if len(candidates) == 1:
+            return candidates[0].get("_source_index", 0)
 
         options_for_ai = [
             {"index": i, "description": c.get("description", "N/A")}
             for i, c in enumerate(candidates)
         ]
+        blocked = ", ".join(sorted(self.DOMAIN_BLOCK_TERMS.get(niche, set())))
         prompt = f"""
-        TASK: Choose the best stock {source_type} for a scene about: "{keyword}".
+        TASK: Choose the best stock {source_type} for this exact scene.
+        NICHE: {niche}
+        SCENE TEXT: "{scene_text}"
+        INTENDED VISUAL: "{keyword}"
+        AVOID WRONG MEANINGS: {blocked or "none"}
         OPTIONS: {json.dumps(options_for_ai)}
-        Output ONLY a valid JSON object containing the chosen 'index'.
+        Pick the option that matches the scene context, not just one ambiguous word.
+        Output ONLY a valid JSON object containing the chosen 'index'. If none match, use -1.
         EXAMPLE: {{"index": 2}}
         """
 
@@ -296,10 +480,10 @@ class VisualScout:
                 result = json.loads(response_text)
                 chosen_index = int(result.get("index", 0))
                 if 0 <= chosen_index < len(candidates):
-                    return chosen_index
+                    return candidates[chosen_index].get("_source_index", chosen_index)
             except Exception as e:
                 pass
-        return 0
+        return candidates[0].get("_source_index", 0)
 
     def _get_file_size_mb(self, url):
         try:
@@ -313,7 +497,7 @@ class VisualScout:
         """Async wrapper for the chunked downloader."""
         return await asyncio.to_thread(_download_chunked_sync, url, save_path, headers)
 
-    async def use_nasa_search(self, query, path):
+    async def use_nasa_search(self, query, path, scene_text="", niche="default"):
         try:
             search_url = f"https://images-api.nasa.gov/search?q={requests.utils.quote(query)}&media_type=video&page_size=10"
             res = await asyncio.to_thread(requests.get, search_url, timeout=15)
@@ -337,8 +521,10 @@ class VisualScout:
                 for i in fresh_items[:5]
             ]
             chosen_idx = await self._ai_choose_best_visual(
-                query, candidates, "NASA asset"
+                query, candidates, "NASA asset", scene_text=scene_text, niche=niche
             )
+            if chosen_idx is None:
+                return False
             item = candidates[chosen_idx]["raw"]
             nasa_id = item.get("data", [{}])[0].get("nasa_id", "")
 
@@ -374,7 +560,7 @@ class VisualScout:
             print(f"      ❌ NASA Search Failed: {e}")
         return False
 
-    async def use_pexels_video_search(self, query, path):
+    async def use_pexels_video_search(self, query, path, scene_text="", niche="default"):
         if not self.pexels_key:
             return False
         try:
@@ -400,7 +586,11 @@ class VisualScout:
                 }
                 for v in fresh_videos[:5]
             ]
-            chosen_idx = await self._ai_choose_best_visual(query, candidates, "video")
+            chosen_idx = await self._ai_choose_best_visual(
+                query, candidates, "video", scene_text=scene_text, niche=niche
+            )
+            if chosen_idx is None:
+                return False
             chosen_video = candidates[chosen_idx]["raw"]
 
             mp4_files = sorted(
@@ -412,6 +602,8 @@ class VisualScout:
                 key=lambda x: x.get("width", 0) * x.get("height", 0),
                 reverse=True,
             )
+            if not mp4_files:
+                return False
 
             best_file = mp4_files[-1]
             for file in mp4_files:
@@ -429,7 +621,7 @@ class VisualScout:
             print(f"      ❌ Pexels Video Failed: {e}")
         return False
 
-    async def use_pixabay_video_search(self, query, path):
+    async def use_pixabay_video_search(self, query, path, scene_text="", niche="default"):
         if not self.pixabay_key:
             return False
         try:
@@ -444,7 +636,11 @@ class VisualScout:
             candidates = [
                 {"description": h.get("tags", ""), "raw": h} for h in fresh_hits[:5]
             ]
-            chosen_idx = await self._ai_choose_best_visual(query, candidates, "video")
+            chosen_idx = await self._ai_choose_best_visual(
+                query, candidates, "video", scene_text=scene_text, niche=niche
+            )
+            if chosen_idx is None:
+                return False
             chosen_video = candidates[chosen_idx]["raw"]
 
             videos = chosen_video.get("videos", {})
@@ -460,7 +656,7 @@ class VisualScout:
             pass
         return False
 
-    async def use_internet_archive(self, query, path):
+    async def use_internet_archive(self, query, path, scene_text="", niche="default"):
         try:
             search_url = "https://archive.org/advancedsearch.php"
             params = {
@@ -488,8 +684,10 @@ class VisualScout:
                 for d in fresh_docs[:5]
             ]
             chosen_idx = await self._ai_choose_best_visual(
-                query, candidates, "archive film"
+                query, candidates, "archive film", scene_text=scene_text, niche=niche
             )
+            if chosen_idx is None:
+                return False
             identifier = candidates[chosen_idx]["raw"].get("identifier")
 
             meta_url = f"https://archive.org/metadata/{identifier}"
@@ -538,7 +736,7 @@ class VisualScout:
             print(f"      ❌ Internet Archive Failed: {e}")
         return False
 
-    async def use_wikimedia_search(self, query, path):
+    async def use_wikimedia_search(self, query, path, scene_text="", niche="default"):
         try:
             params = {
                 "action": "query",
@@ -568,8 +766,10 @@ class VisualScout:
                 return False
 
             chosen_idx = await self._ai_choose_best_visual(
-                query, candidates, "Wikimedia file"
+                query, candidates, "Wikimedia file", scene_text=scene_text, niche=niche
             )
+            if chosen_idx is None:
+                return False
             chosen_title = candidates[chosen_idx]["title"]
 
             info_params = {
@@ -615,7 +815,7 @@ class VisualScout:
             pass
         return False
 
-    async def use_unsplash_image_search(self, query, path):
+    async def use_unsplash_image_search(self, query, path, scene_text="", niche="default"):
         if not self.unsplash_key:
             return False
         try:
@@ -633,8 +833,10 @@ class VisualScout:
                     for img in results[:5]
                 ]
                 chosen_idx = await self._ai_choose_best_visual(
-                    query, candidates, "image"
+                    query, candidates, "image", scene_text=scene_text, niche=niche
                 )
+                if chosen_idx is None:
+                    return False
                 img_url = candidates[chosen_idx]["raw"]["urls"]["regular"]
                 save_path = str(Path(path).with_suffix(".jpg"))
                 if await self._download_file(img_url, save_path):
@@ -644,7 +846,7 @@ class VisualScout:
             pass
         return False
 
-    async def use_pixabay_image_search(self, query, path):
+    async def use_pixabay_image_search(self, query, path, scene_text="", niche="default"):
         if not self.pixabay_key:
             return False
         try:
@@ -656,8 +858,10 @@ class VisualScout:
                     {"description": hit.get("tags", ""), "raw": hit} for hit in hits[:5]
                 ]
                 chosen_idx = await self._ai_choose_best_visual(
-                    query, candidates, "image"
+                    query, candidates, "image", scene_text=scene_text, niche=niche
                 )
+                if chosen_idx is None:
+                    return False
                 img_url = candidates[chosen_idx]["raw"].get(
                     "largeImageURL", candidates[chosen_idx]["raw"].get("webformatURL")
                 )
@@ -670,7 +874,7 @@ class VisualScout:
             pass
         return False
 
-    async def use_pexels_image_search(self, query, path):
+    async def use_pexels_image_search(self, query, path, scene_text="", niche="default"):
         if not self.pexels_key:
             return False
         try:
@@ -687,8 +891,10 @@ class VisualScout:
                     {"description": p.get("alt", ""), "raw": p} for p in photos[:5]
                 ]
                 chosen_idx = await self._ai_choose_best_visual(
-                    query, candidates, "image"
+                    query, candidates, "image", scene_text=scene_text, niche=niche
                 )
+                if chosen_idx is None:
+                    return False
                 img_url = candidates[chosen_idx]["raw"]["src"]["large"]
                 save_path = str(Path(path).with_suffix(".jpg"))
                 if await self._download_file(img_url, save_path):
@@ -698,35 +904,39 @@ class VisualScout:
             pass
         return False
 
-    async def _try_source(self, source_name, query, base_filename, folder):
+    async def _try_source(
+        self, source_name, query, base_filename, folder, scene_text="", niche="default"
+    ):
         path = os.path.join(folder, base_filename)
         if source_name == "nasa":
-            return await self.use_nasa_search(query, path)
+            return await self.use_nasa_search(query, path, scene_text, niche)
         elif source_name == "pexels_video":
-            return await self.use_pexels_video_search(query, path)
+            return await self.use_pexels_video_search(query, path, scene_text, niche)
         elif source_name == "pixabay_video":
-            return await self.use_pixabay_video_search(query, path)
+            return await self.use_pixabay_video_search(query, path, scene_text, niche)
         elif source_name == "unsplash_image":
-            return await self.use_unsplash_image_search(query, path)
+            return await self.use_unsplash_image_search(query, path, scene_text, niche)
         elif source_name == "pixabay_image":
-            return await self.use_pixabay_image_search(query, path)
+            return await self.use_pixabay_image_search(query, path, scene_text, niche)
         elif source_name == "pexels_image":
-            return await self.use_pexels_image_search(query, path)
+            return await self.use_pexels_image_search(query, path, scene_text, niche)
         elif source_name == "internet_archive":
-            return await self.use_internet_archive(query, path)
+            return await self.use_internet_archive(query, path, scene_text, niche)
         elif source_name == "wikimedia":
-            return await self.use_wikimedia_search(query, path)
+            return await self.use_wikimedia_search(query, path, scene_text, niche)
         return False
 
     async def _fetch_single_visual(
-        self, kw, niche, base_filename, folder, all_keywords
+        self, kw, niche, base_filename, folder, all_keywords, scene_text=""
     ):
         print(f"   🔍 Hunting for: '{kw}'...")
-        saved_path = None
+        context_query = self._build_context_query(kw, niche, scene_text, all_keywords)
 
         source_order = self._route_source_order(kw, niche)
         for source_name in source_order:
-            result = await self._try_source(source_name, kw, base_filename, folder)
+            result = await self._try_source(
+                source_name, context_query, base_filename, folder, scene_text, niche
+            )
             if result:
                 print(f"      📦 [{kw}] Secured via {source_name}")
                 return result
@@ -736,9 +946,12 @@ class VisualScout:
             if fallback_kw == kw:
                 continue
             fallback_order = self._route_source_order(fallback_kw, niche)
+            fallback_query = self._build_context_query(
+                fallback_kw, niche, scene_text, all_keywords
+            )
             for source_name in fallback_order[:3]:
                 result = await self._try_source(
-                    source_name, fallback_kw, base_filename, folder
+                    source_name, fallback_query, base_filename, folder, scene_text, niche
                 )
                 if result:
                     print(
@@ -750,9 +963,12 @@ class VisualScout:
         simplified = kw.split()[0] if kw.split() else kw
         if simplified != kw:
             simple_order = self._route_source_order(simplified, niche)
+            simple_query = self._build_context_query(
+                simplified, niche, scene_text, all_keywords
+            )
             for source_name in simple_order[:3]:
                 result = await self._try_source(
-                    source_name, simplified, base_filename, folder
+                    source_name, simple_query, base_filename, folder, scene_text, niche
                 )
                 if result:
                     print(
@@ -762,7 +978,7 @@ class VisualScout:
 
         # Fallback 3: Wikimedia (Removed fragile Google Images scraper)
         result = await self.use_wikimedia_search(
-            kw, os.path.join(folder, base_filename)
+            context_query, os.path.join(folder, base_filename), scene_text, niche
         )
         if result:
             return result
@@ -792,7 +1008,12 @@ class VisualScout:
                 # Create asyncio tasks instead of threads
                 task = asyncio.create_task(
                     self._fetch_single_visual(
-                        kw, niche, base_filename, folder, keywords
+                        kw,
+                        niche,
+                        base_filename,
+                        folder,
+                        keywords,
+                        scene.get("text", ""),
                     )
                 )
                 tasks.append(task)

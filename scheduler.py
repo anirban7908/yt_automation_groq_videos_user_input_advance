@@ -29,9 +29,11 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # 🟢 UNIFIED CONFIG: Single source of truth for both scheduler and recovery logic
 SCHEDULE_CONFIG = {
     "mid_night": "00:00",
-    "4_am": "06:00",
-    "8_am": "12:00",
-    "mid_day": "18:00",
+    "4_am": "04:00",
+    "8_am": "08:00",
+    "mid_day": "12:00",
+    "4_pm": "16:00",
+    "8_pm": "20:00",
 }
 
 # ─────────────────────────────────────────────────────────────

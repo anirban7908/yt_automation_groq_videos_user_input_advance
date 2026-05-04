@@ -70,7 +70,7 @@ class ThumbnailGenerator:
 
         # Build the final prompt with style modifiers
         # Note: We now add 'nologo=true&private=true' as in your test script
-        full_prompt = f"{clean_title}, {prompt_tags}, cinematic sports stadium action shot, high contrast, bold colors, realistic lighting, 8k, highly detailed, professional YouTube thumbnail"
+        full_prompt = f"{clean_title}, {prompt_tags}, cinematic documentary thumbnail, high contrast, bold colors, realistic lighting, 8k, highly detailed, professional YouTube thumbnail"
         encoded_prompt = requests.utils.quote(full_prompt)
 
         # We keep the size parameters (1280x720) as requested by other integrated modules

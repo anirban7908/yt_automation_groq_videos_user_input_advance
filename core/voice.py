@@ -8,6 +8,7 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2
 MIN_AUDIO_DURATION = 0.5
 FALLBACK_VOICE = "en-US-GuyNeural"
+MAX_CONCURRENT_TTS = int(os.getenv("MAX_CONCURRENT_TTS", "3"))
 
 
 class VoiceEngine:
@@ -81,8 +82,14 @@ class VoiceEngine:
         )
 
         # ── Create and Run Tasks Simultaneously ──
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_TTS)
+
+        async def limited_process(i, scene):
+            async with semaphore:
+                return await self._process_scene_task(i, scene, folder, selected_voice)
+
         tasks = [
-            self._process_scene_task(i, scene, folder, selected_voice)
+            limited_process(i, scene)
             for i, scene in enumerate(scenes)
         ]
 

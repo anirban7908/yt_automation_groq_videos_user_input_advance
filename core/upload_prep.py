@@ -10,12 +10,13 @@ class UploadManager:
         # Find the task that just finished assembly
         task = self.db.collection.find_one({"status": "ready_to_upload"})
         if not task:
-            return
+            print("No videos ready for upload prep.")
+            return False
 
         folder = task.get("folder_path")
         if not folder or not os.path.exists(folder):
             print(f"⚠️ Error: Folder path missing for task {task['_id']}")
-            return
+            return False
 
         print(
             f"📦 Packaging final video assets for: {task.get('title', 'Untitled')[:50]}..."
@@ -49,7 +50,7 @@ class UploadManager:
 
         except Exception as e:
             print(f"   ❌ Failed to write metadata file: {e}")
-            return
+            return False
 
         # Advance the status so the Uploader grabs it
         self.db.collection.update_one(

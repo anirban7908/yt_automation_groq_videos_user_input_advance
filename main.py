@@ -395,6 +395,10 @@ def _run_post_script_steps(task, db, slot_name, is_manual):
     try:
         prep = UploadManager()
         prep.prepare_package()
+        if not db.collection.find_one(
+            {"_id": task["_id"], "status": "completed_packaged"}
+        ):
+            raise RuntimeError("Status not updated to 'completed_packaged'")
     except Exception as e:
         print(f"❌ Upload prep failed: {e}")
         _delete_task(db, task["_id"], f"Prep error: {e}")
@@ -419,10 +423,13 @@ def _run_post_script_steps(task, db, slot_name, is_manual):
     youtube_success = False
     try:
         uploader = YouTubeUploader()
-        uploader.upload_video()
-        youtube_success = True
+        youtube_success = uploader.upload_video()
     except Exception as e:
         print(f"❌ YouTube upload failed: {e}")
+        return False
+
+    if not youtube_success:
+        print("YouTube upload did not complete. Skipping cross-posting and final success log.")
         return False
 
     if youtube_success:
@@ -430,7 +437,7 @@ def _run_post_script_steps(task, db, slot_name, is_manual):
         print("📱 STARTING META CROSS-POSTING (FB & IG)")
 
         video_path = os.path.normpath(
-            os.path.join(PROJECT_ROOT, task["folder_path"], "final_video.mp4")
+            os.path.join(PROJECT_ROOT, task["folder_path"], "FINAL_VIDEO.mp4")
         )
         caption = f"{task['title']}\n\n#automation #AI #trending"
 
@@ -553,7 +560,7 @@ def run_creation_pipeline(slot_name, is_manual=False):
         return
 
     task = db.collection.find_one({"_id": task["_id"]})
-    _run_post_script_steps(task, db, slot_name, is_manual=True)
+    _run_post_script_steps(task, db, slot_name, is_manual=is_manual)
 
 
 # ─────────────────────────────────────────────────────────────

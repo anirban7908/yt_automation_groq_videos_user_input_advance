@@ -490,8 +490,10 @@ class VideoAssembler:
             for vi, raw_path in enumerate(visual_paths):
                 path = os.path.normpath(os.path.join(PROJECT_ROOT, raw_path))
                 keyword = scene_keywords[vi] if vi < len(scene_keywords) else ""
+                scene_context = scene.get("text", "")
+                visual_intent = f"{keyword}. {scene_context}"[:240]
                 clip = self._make_clip(
-                    path, clip_durations[vi], niche_style, keyword=keyword
+                    path, clip_durations[vi], niche_style, keyword=visual_intent
                 )
                 if clip is not None:
                     scene_clips.append(clip)

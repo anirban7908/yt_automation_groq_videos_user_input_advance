@@ -200,6 +200,8 @@ class ScriptGenerator:
             KEYWORD RULES:
             - Every keyword must describe ONE single REAL, PHYSICAL, FILMABLE subject.
             - Keywords must be 2-4 words MAX. Format: [subject] + ONE cinematic modifier.
+            - Ambiguous words MUST include domain context. Example: use "technology ecosystem office", never just "ecosystem"; use "AI platform servers", not "platform".
+            - Keywords must match the meaning of the scene and niche, not a different meaning of the same word.
             - STRICT NO DUPLICATE RULE: Scan ALL keywords across ALL scenes. Replace duplicates.
             - 🔴 NO MICROSCOPIC/INVISIBLE SUBJECTS: Substitute a generic human equivalent.
             - 🔴 NO ABSTRACT CONCEPTS: Use literal physical objects.
