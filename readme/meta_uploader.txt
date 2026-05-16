@@ -1,0 +1,32 @@
+YOUTUBE AUTOMATION PROJECT - META UPLOADER
+==========================================
+File: core/meta_uploader.py
+
+Purpose
+-------
+meta_uploader.py provides optional cross-posting helpers for Facebook Pages and Instagram Reels through the Meta Graph API.
+
+Functions
+---------
+- upload_to_facebook(video_path, description)
+  Uploads a local video file directly to a Facebook Page.
+- upload_to_instagram(video_url, caption)
+  Creates an Instagram Reel container from a public video URL, polls processing status, then publishes it.
+
+Environment Variables
+---------------------
+- META_ACCESS_TOKEN
+- FB_PAGE_ID
+- IG_USER_ID
+
+Graph API Version
+-----------------
+v20.0
+
+Important Instagram Constraint
+------------------------------
+Instagram upload requires a public video_url. The current helper cannot upload a local file directly to Instagram. main.py only attempts Instagram when the task has a public_url field.
+
+Used By
+-------
+main.py calls these helpers after a successful YouTube upload. Facebook and Instagram failures are logged as warnings and do not undo the YouTube upload.

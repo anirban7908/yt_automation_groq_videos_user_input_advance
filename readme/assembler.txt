@@ -1,46 +1,75 @@
-YOUTUBE AUTOMATION PROJECT - MODULE DOCUMENTATION
-===============================================
+YOUTUBE AUTOMATION PROJECT - VIDEO ASSEMBLER
+============================================
 File: core/assembler.py
 
-1. What it does?
-This file is the "Post-Production Studio" of your automation pipeline. It acts as the Video Editor. It takes the separate audio files (from the Voice Engine) and the visuals (from the Visual Scout) and combines them into a single, seamless, high-retention video.
-Key Upgrade: This file has been heavily optimized for RAM usage. It now natively handles both static images and MP4 video B-roll. It crops everything perfectly to the 9:16 vertical format (1080x1920) for YouTube Shorts, adds a massive Hook Title to the first 3 seconds, and uses OpenAI's Whisper model to generate word-by-word "Karaoke style" subtitles.
+Purpose
+-------
+VideoAssembler turns voiced scenes and downloaded visuals into the final vertical video.
 
-2. What are the libraries used?
-* os: Standard library used to construct safe file paths to locate the downloaded audio and video assets inside the project folder.
-* whisper: OpenAI's local speech recognition model. It listens to the final assembled audio track and returns a list of every single word with precise millisecond timestamps, allowing for dynamic, fast-paced captions.
-* moviepy (The Video Engine): A powerful library for video editing in Python. It handles the heavy lifting of loading clips, resizing, cropping, layering text, and rendering the final `.mp4` file.
-  - VideoFileClip / ImageClip / AudioFileClip: Used to load the respective media types into memory as manipulatable objects.
-  - TextClip: Generates the yellow and white subtitle text with black outlines.
-  - CompositeVideoClip: Layers the subtitles on top of the background video.
-  - concatenate_videoclips: Glues the individual scenes together in order.
-  - vfx (Video Effects): Used to loop short B-roll clips so they match the length of the audio.
-* core.db_manager.DBManager: Your custom database handler. Fetches tasks with the status "ready_to_assemble" and marks them as "ready_to_upload" once the final video is rendered.
+Main Class
+----------
+VideoAssembler
 
-3. Which is the main function and what does it do?
-Main Function: `assemble(self)`
-This function builds the video layer by layer:
-  
-  Step A: The Scene Loop (Building the Timeline)
-  1. Loops through every scene in the script.
-  2. Loads the audio for that scene and checks its exact duration.
-  3. Calculates Visual Pacing: `Image Duration = Scene Audio Duration / Number of Visuals`. (e.g., If the audio is 6s and the AI requested 2 visuals, each visual gets 3s).
+Input
+-----
+The assembler looks for one MongoDB task with status:
 
-  Step B: Visual Processing & Cropping
-  For every visual, it applies transformations based on file type:
-  1. If MP4: Loads the video without audio to save RAM (`audio=False`). If the clip is too short, it loops it (`vfx.Loop`). If it's too long, it trims it (`subclipped`).
-  2. If JPG: Loads the image and sets its duration to match the pacing.
-  3. The 9:16 Crop: It resizes the media so it is exactly 1920 pixels tall. Then it finds the exact center and draws a 1080x1920 box around it, discarding the rest. This prevents the "stretched landscape" bug.
+ready_to_assemble
 
-  Step C: Assembly & The Hook
-  1. It glues the perfectly sized clips together using `method="chain"`. This is a critical memory optimization that prevents MoviePy from rendering heavy, transparent alpha masks, saving gigabytes of RAM.
-  2. For Scene 1, it generates a massive yellow `TextClip` of the video's title and overlays it on the first 3 seconds to act as a visual hook.
+Required task fields:
+- script_data
+- folder_path
+- title
+- niche
 
-  Step D: Subtitle Generation (The Whisper Logic)
-  1. It glues all the scenes into one long video and exports a temporary audio track.
-  2. It runs `self.model.transcribe` to get the word-level timestamps.
-  3. It loops through the words, creating a `TextClip` for each one, positioning them at coordinates `("center", 1600)` (the lower third of the screen), and adding a black stroke for visibility.
+Current Behavior
+----------------
+- Loads Whisper to get word timestamps from each scene audio file.
+- Loads CLIP when available to choose strong video start points.
+- Falls back to OpenCV-based analysis when CLIP is unavailable.
+- Applies niche-specific color grading and film grain.
+- Builds a 24 FPS vertical video from scene visuals and audio.
+- Draws synchronized captions over the base video.
+- Writes FINAL_VIDEO.mp4.
+- Cleans intermediate files while preserving FINAL_VIDEO.mp4 and FINAL_VIDEO_METADATA.txt.
 
-  Step E: Final Rendering & RAM Optimization
-  1. It layers the captions over the video using `CompositeVideoClip`. Crucially, the `size` argument was removed here to prevent NumPy from allocating a massive 63MB blank canvas, which previously crashed the system.
-  2. It writes the final file (`FINAL_VIDEO.mp4`) using the ultrafast `libx264` codec.
+Key Dependencies
+----------------
+- moviepy
+- Pillow
+- numpy
+- openai-whisper
+- torch
+- rapidfuzz
+- optional CLIP installed from GitHub
+
+Key Methods
+-----------
+- _load_clip() / _unload_clip()
+  Manage optional CLIP model memory.
+- _load_whisper() / _unload_whisper()
+  Manage Whisper model memory.
+- _find_best_start(video_path, required_duration, keyword="")
+  Selects a useful starting point for source videos.
+- _apply_color_grade(...)
+  Applies niche-specific visual style.
+- _make_clip(...)
+  Converts a media path into a timed MoviePy clip.
+- _write_base_video(...)
+  Creates the base video and audio mix.
+- _draw_text_on_video(...)
+  Adds synchronized text/captions.
+- _cleanup_intermediate_files(...)
+  Removes raw assets after final render.
+- assemble()
+  Full assembly entry point.
+
+Output
+------
+Writes:
+
+FINAL_VIDEO.mp4
+
+Then updates MongoDB with:
+- status: ready_to_upload
+- final_video_path

@@ -1,31 +1,71 @@
-YOUTUBE AUTOMATION PROJECT - MODULE DOCUMENTATION
-===============================================
+YOUTUBE AUTOMATION PROJECT - SCRIPT GENERATOR
+=============================================
 File: core/brain.py
 
-1. What it does?
-This file is the "Creative Director" and "Scriptwriter" of your automation pipeline. It takes the raw, 5,000-character factual text from the Scraper and uses Artificial Intelligence (Groq) to transform it into a professional, highly engaging video script.
-Key Upgrade: This file now features "Dynamic Persona Mapping". Instead of sounding exactly the same every time, the AI checks the video's niche and completely changes its personality. It acts like an energetic geek for comics, a serious investigative narrator for mysteries, or an objective anchor for world news. It also forces the script to be educational, strictly factual (no personal diary fluff), and broken down into simple terms for a general audience.
+Purpose
+-------
+ScriptGenerator turns a pending task into a validated Shorts package: narration scenes, visual search keywords, trigger words, title, description, hashtags, and tags.
 
-2. What are the libraries used?
-* json: A built-in Python library used to parse the strict JSON data returned by the AI into a usable Python dictionary.
-* re (Regular Expressions): A powerful text manipulation tool. Used in the `repair_json` function to strip away any extra "chatter" the AI might output (like "Here is your code: ") so the script doesn't crash.
-* os & dotenv: Standard libraries used to securely load your hidden API keys (GROQ_API_KEY) from your local `.env` file so they aren't exposed in your code.
-* groq: The official Groq API client. This is the engine that connects to the cloud-based "llama-3.3-70b-versatile" model for lightning-fast reasoning and writing.
-* core.db_manager.DBManager: Your custom database handler. Used to fetch tasks waiting in the "pending" state and update them to the "scripted" state once the AI finishes writing.
+Main Class
+----------
+ScriptGenerator
 
-3. Which is the main function and what does it do?
-Main Function: generate_script(self)
-This is the core logic that produces the video blueprint:
-  1. Fetching: Looks in the database for a task where status is "pending".
-  2. Role Assignment: Calls the new `get_expert_role` function to determine exactly who the AI needs to pretend to be for this specific niche.
-  3. Meta-Prompting: Calls `generate_meta_prompt` to dynamically invent a custom 3-sentence persona and 10 highly specific visual keywords (the Inspiration Board).
-  4. Prompting: Constructs the massive Director prompt. It feeds the AI the dynamic persona, the raw news text, and strict rules for voiceover punctuation, factual reporting, and visual pacing.
-  5. Generating: Calls the Groq API, forcing it to return a structured JSON response containing the scenes, narration, and unique search keywords.
-  6. Cleaning & Formatting: Uses `repair_json` to ensure the output is valid, saves a local text file with the metadata, and formats the SEO tags into a comma-separated string.
-  7. Saving: Updates the database record with the new script data and changes the status to "scripted".
+Current Generation Flow
+-----------------------
+1. Reads the next pending task or receives a task from main.py.
+2. Builds a niche-specific expert role.
+3. Uses AIEngine to create a custom persona and core subject.
+4. Generates a 6-8 scene English narration for a 90-110 second Short.
+5. Generates packaging JSON with scene keywords, trigger words, image counts, title, description, hashtags, and tags.
+6. Validates the JSON structure and visual keyword quality.
+7. Cleans scene text so TTS does not read markdown or scene numbering.
+8. Saves approved script data to MongoDB and marks the task scripted.
 
-4. Helper Functions & Key Variables
-* get_expert_role(self, niche): The Persona Dictionary. It looks at the niche (e.g., "space") and returns a highly specific instruction string (e.g., "authoritative science and astronomy communicator") to instantly change the AI's writing style.
-* generate_meta_prompt(self, niche, source_text, expert_role): The AI Strategist. It reads the news first and outputs the persona and visual keywords to guide the main script generation.
-* repair_json(self, json_str): A safety net. It uses regex (`re.sub`) to remove text before the first `{` and after the last `}` to guarantee perfect JSON parsing.
-* The Prompt Requirements: The master instruction manual for the AI. It strictly forbids "motivational fluff" and "I statements", forcing the AI to extract only hard facts. It also enforces "Dynamic Pacing", telling the AI to choose exactly 1, 2, or 3 unique stock footage search terms based on how long each spoken sentence is.
+Key Methods
+-----------
+- get_expert_role(niche)
+  Maps each niche to a suitable writing persona.
+- repair_json(json_str)
+  Attempts to strip non-JSON wrapper text from a model response.
+- validate_script(data)
+  Enforces 6-8 scenes, required text, keywords, trigger_words, and image_count.
+- generate_narration(...)
+  Creates the spoken scene list.
+- generate_packaging(...)
+  Creates metadata and visual planning JSON.
+- generate_meta_prompt(...)
+  Creates a custom system prompt and core subject.
+- generate_script_for_task(task)
+  Used by manual review mode; returns data without saving.
+- regenerate_with_feedback(task, feedback)
+  Re-runs generation with user notes.
+- approve_and_save(task, data)
+  Saves a user-approved script.
+- generate_script()
+  Automatic-mode method that processes the next pending task.
+
+Validation Rules
+----------------
+- Scene count must be 6 to 8.
+- Every scene needs text, keywords, trigger_words, and image_count.
+- image_count must be 1, 2, 3, or 4.
+- keywords and trigger_words counts must match image_count exactly.
+- Duplicate or non-filmable visual terms are discouraged or rejected.
+- Banned exact keywords include terms such as abstract, concept, icon, background, texture, propaganda, and certain unsafe/person-only terms.
+- Banned contained terms include animated, animation, infographic, diagram, 3d, illustration, visualization, and render.
+
+Output
+------
+On success, MongoDB is updated with:
+- script_data
+- title
+- ai_description
+- ai_hashtags
+- ai_tags
+- status: scripted
+
+It also creates a temporary root metadata file:
+
+metadata_<task_id>.txt
+
+That root metadata file is removed after successful YouTube upload.

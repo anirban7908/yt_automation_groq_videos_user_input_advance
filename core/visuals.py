@@ -85,7 +85,9 @@ def _download_chunked_sync(url, save_path, headers=None):
                 for chunk in r.iter_content(chunk_size=65536):
                     downloaded += len(chunk)
                     if downloaded > MAX_SIZE_MB * 1024 * 1024:
-                        raise ValueError(f"Download exceeded MAX_DOWNLOAD_SIZE_MB: {url}")
+                        raise ValueError(
+                            f"Download exceeded MAX_DOWNLOAD_SIZE_MB: {url}"
+                        )
                     f.write(chunk)
         return save_path
     except Exception as e:
@@ -108,9 +110,22 @@ class VisualScout:
         self._used_nasa_ids = set()
         self._used_wikimedia_titles = set()
         self._used_archive_ids = set()
+        self._used_visual_keys = set()
 
         # Prevents Groq 429 Rate Limits by allowing max 3 concurrent LLM evaluations
         self.ai_semaphore = asyncio.Semaphore(3)
+
+    def _make_asset_key(self, source, identifier):
+        identifier = str(identifier or "").strip()
+        if not identifier:
+            identifier = "<unknown>"
+        return f"{source}:{identifier}"
+
+    def _mark_asset_used(self, source, identifier):
+        self._used_visual_keys.add(self._make_asset_key(source, identifier))
+
+    def _is_asset_used(self, source, identifier):
+        return self._make_asset_key(source, identifier) in self._used_visual_keys
 
     NICHE_CONTEXT_TERMS = {
         "tech_ai": [
@@ -508,11 +523,15 @@ class VisualScout:
                 res = await asyncio.to_thread(requests.get, search_url, timeout=15)
                 items = res.json().get("collection", {}).get("items", [])
 
-            fresh_items = [
-                i
-                for i in items
-                if i.get("data", [{}])[0].get("nasa_id", "") not in self._used_nasa_ids
-            ]
+            fresh_items = []
+            for i in items:
+                nasa_id = i.get("data", [{}])[0].get("nasa_id", "")
+                if (
+                    nasa_id
+                    and nasa_id not in self._used_nasa_ids
+                    and not self._is_asset_used("nasa", nasa_id)
+                ):
+                    fresh_items.append(i)
             if not fresh_items:
                 return False
 
@@ -554,13 +573,16 @@ class VisualScout:
                 save_path = str(Path(path).with_suffix(".mp4"))
                 if await self._download_file(best_link, save_path):
                     self._used_nasa_ids.add(nasa_id)
+                    self._mark_asset_used("nasa", nasa_id)
                     return save_path
 
         except Exception as e:
             print(f"      ❌ NASA Search Failed: {e}")
         return False
 
-    async def use_pexels_video_search(self, query, path, scene_text="", niche="default"):
+    async def use_pexels_video_search(
+        self, query, path, scene_text="", niche="default"
+    ):
         if not self.pexels_key:
             return False
         try:
@@ -574,7 +596,11 @@ class VisualScout:
             videos = res.json().get("videos", [])
 
             fresh_videos = [
-                v for v in videos if v.get("id") not in self._used_pexels_ids
+                v
+                for v in videos
+                if v.get("id")
+                and v.get("id") not in self._used_pexels_ids
+                and not self._is_asset_used("pexels_video", v.get("id"))
             ]
             if not fresh_videos:
                 return False
@@ -616,12 +642,15 @@ class VisualScout:
             save_path = str(Path(path).with_suffix(".mp4"))
             if await self._download_file(best_file["link"], save_path):
                 self._used_pexels_ids.add(chosen_video["id"])
+                self._mark_asset_used("pexels_video", chosen_video["id"])
                 return save_path
         except Exception as e:
             print(f"      ❌ Pexels Video Failed: {e}")
         return False
 
-    async def use_pixabay_video_search(self, query, path, scene_text="", niche="default"):
+    async def use_pixabay_video_search(
+        self, query, path, scene_text="", niche="default"
+    ):
         if not self.pixabay_key:
             return False
         try:
@@ -629,7 +658,13 @@ class VisualScout:
             res = await asyncio.to_thread(requests.get, url, timeout=30)
             hits = res.json().get("hits", [])
 
-            fresh_hits = [h for h in hits if h.get("id") not in self._used_pixabay_ids]
+            fresh_hits = [
+                h
+                for h in hits
+                if h.get("id")
+                and h.get("id") not in self._used_pixabay_ids
+                and not self._is_asset_used("pixabay_video", h.get("id"))
+            ]
             if not fresh_hits:
                 return False
 
@@ -651,6 +686,7 @@ class VisualScout:
                     save_path = str(Path(path).with_suffix(".mp4"))
                     if await self._download_file(videos[quality]["url"], save_path):
                         self._used_pixabay_ids.add(chosen_video["id"])
+                        self._mark_asset_used("pixabay_video", chosen_video["id"])
                         return save_path
         except Exception:
             pass
@@ -670,9 +706,15 @@ class VisualScout:
             )
             docs = res.json().get("response", {}).get("docs", [])
 
-            fresh_docs = [
-                d for d in docs if d.get("identifier") not in self._used_archive_ids
-            ]
+            fresh_docs = []
+            for d in docs:
+                identifier = d.get("identifier")
+                if (
+                    identifier
+                    and identifier not in self._used_archive_ids
+                    and not self._is_asset_used("archive", identifier)
+                ):
+                    fresh_docs.append(d)
             if not fresh_docs:
                 return False
 
@@ -730,6 +772,7 @@ class VisualScout:
                         return False
                     mp4_path = converted
                 self._used_archive_ids.add(identifier)
+                self._mark_asset_used("archive", identifier)
                 return mp4_path
 
         except Exception as e:
@@ -760,7 +803,9 @@ class VisualScout:
                     "raw": r,
                 }
                 for r in results
-                if r.get("title") not in self._used_wikimedia_titles
+                if r.get("title")
+                and r.get("title") not in self._used_wikimedia_titles
+                and not self._is_asset_used("wikimedia", r.get("title"))
             ][:5]
             if not candidates:
                 return False
@@ -810,12 +855,15 @@ class VisualScout:
                     if not save_path:
                         return False
                 self._used_wikimedia_titles.add(chosen_title)
+                self._mark_asset_used("wikimedia", chosen_title)
                 return save_path
         except Exception:
             pass
         return False
 
-    async def use_unsplash_image_search(self, query, path, scene_text="", niche="default"):
+    async def use_unsplash_image_search(
+        self, query, path, scene_text="", niche="default"
+    ):
         if not self.unsplash_key:
             return False
         try:
@@ -831,7 +879,11 @@ class VisualScout:
                 candidates = [
                     {"description": img.get("alt_description", ""), "raw": img}
                     for img in results[:5]
+                    if img.get("id")
+                    and not self._is_asset_used("unsplash_image", img.get("id"))
                 ]
+                if not candidates:
+                    return False
                 chosen_idx = await self._ai_choose_best_visual(
                     query, candidates, "image", scene_text=scene_text, niche=niche
                 )
@@ -841,12 +893,17 @@ class VisualScout:
                 save_path = str(Path(path).with_suffix(".jpg"))
                 if await self._download_file(img_url, save_path):
                     if await asyncio.to_thread(self.is_valid_image, save_path):
+                        self._mark_asset_used(
+                            "unsplash_image", candidates[chosen_idx]["raw"].get("id")
+                        )
                         return save_path
         except Exception:
             pass
         return False
 
-    async def use_pixabay_image_search(self, query, path, scene_text="", niche="default"):
+    async def use_pixabay_image_search(
+        self, query, path, scene_text="", niche="default"
+    ):
         if not self.pixabay_key:
             return False
         try:
@@ -855,8 +912,13 @@ class VisualScout:
             hits = res.json().get("hits", [])
             if hits:
                 candidates = [
-                    {"description": hit.get("tags", ""), "raw": hit} for hit in hits[:5]
+                    {"description": hit.get("tags", ""), "raw": hit}
+                    for hit in hits[:5]
+                    if hit.get("id")
+                    and not self._is_asset_used("pixabay_image", hit.get("id"))
                 ]
+                if not candidates:
+                    return False
                 chosen_idx = await self._ai_choose_best_visual(
                     query, candidates, "image", scene_text=scene_text, niche=niche
                 )
@@ -869,12 +931,17 @@ class VisualScout:
                     save_path = str(Path(path).with_suffix(".jpg"))
                     if await self._download_file(img_url, save_path):
                         if await asyncio.to_thread(self.is_valid_image, save_path):
+                            self._mark_asset_used(
+                                "pixabay_image", candidates[chosen_idx]["raw"].get("id")
+                            )
                             return save_path
         except Exception:
             pass
         return False
 
-    async def use_pexels_image_search(self, query, path, scene_text="", niche="default"):
+    async def use_pexels_image_search(
+        self, query, path, scene_text="", niche="default"
+    ):
         if not self.pexels_key:
             return False
         try:
@@ -888,8 +955,13 @@ class VisualScout:
             photos = res.json().get("photos", [])
             if photos:
                 candidates = [
-                    {"description": p.get("alt", ""), "raw": p} for p in photos[:5]
+                    {"description": p.get("alt", ""), "raw": p}
+                    for p in photos[:5]
+                    if p.get("id")
+                    and not self._is_asset_used("pexels_image", p.get("id"))
                 ]
+                if not candidates:
+                    return False
                 chosen_idx = await self._ai_choose_best_visual(
                     query, candidates, "image", scene_text=scene_text, niche=niche
                 )
@@ -899,6 +971,9 @@ class VisualScout:
                 save_path = str(Path(path).with_suffix(".jpg"))
                 if await self._download_file(img_url, save_path):
                     if await asyncio.to_thread(self.is_valid_image, save_path):
+                        self._mark_asset_used(
+                            "pexels_image", candidates[chosen_idx]["raw"].get("id")
+                        )
                         return save_path
         except Exception:
             pass
@@ -951,7 +1026,12 @@ class VisualScout:
             )
             for source_name in fallback_order[:3]:
                 result = await self._try_source(
-                    source_name, fallback_query, base_filename, folder, scene_text, niche
+                    source_name,
+                    fallback_query,
+                    base_filename,
+                    folder,
+                    scene_text,
+                    niche,
                 )
                 if result:
                     print(
@@ -1045,6 +1125,7 @@ class VisualScout:
         self._used_nasa_ids.clear()
         self._used_wikimedia_titles.clear()
         self._used_archive_ids.clear()
+        self._used_visual_keys.clear()
 
         print(f"🎬 Visual Scout active | niche='{niche}' | {len(scenes)} scenes")
         print(f"⚡ Async processing enabled. Fetching assets simultaneously...")

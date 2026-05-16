@@ -1,0 +1,43 @@
+YOUTUBE AUTOMATION PROJECT - AUTH CHECK
+=======================================
+File: auth_check.py
+
+Purpose
+-------
+auth_check.py performs a YouTube OAuth pre-flight check before the pipeline or scheduler starts. It prevents long generation jobs from running when upload credentials are missing or invalid.
+
+Main Function
+-------------
+verify_and_refresh_token()
+
+Credential Files
+----------------
+Defaults:
+- client_secrets.json in the project root
+- token.pickle in the project root
+
+Environment overrides:
+- YOUTUBE_CLIENT_SECRETS_FILE
+- YOUTUBE_TOKEN_FILE
+
+OAuth Scope
+-----------
+https://www.googleapis.com/auth/youtube.upload
+
+Behavior
+--------
+1. Loads token.pickle if it exists.
+2. If the token is valid, returns True.
+3. If the token is expired and refreshable, refreshes it silently.
+4. If no valid token exists, starts browser OAuth through run_local_server().
+5. If the local browser flow fails, falls back to console auth.
+6. Saves the refreshed or new token.
+
+Used By
+-------
+- main.py
+- scheduler.py
+
+Manual Command
+--------------
+python auth_check.py

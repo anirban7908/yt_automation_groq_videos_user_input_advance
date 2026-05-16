@@ -1,0 +1,42 @@
+YOUTUBE AUTOMATION PROJECT - THUMBNAIL GENERATOR
+===============================================
+File: core/thumbnail_gen.py
+
+Purpose
+-------
+ThumbnailGenerator creates a YouTube thumbnail image after the final video package is prepared and before upload.
+
+Main Class
+----------
+ThumbnailGenerator
+
+Provider
+--------
+Pollinations image API:
+
+https://image.pollinations.ai/prompt/
+
+Environment Variables
+---------------------
+- POLLINATIONS_API_KEY
+  Optional. If set, it is sent as a Bearer token.
+
+Current Behavior
+----------------
+- Builds a prompt from the title and up to four generated keywords/tags.
+- Requests a 1280x720 Flux image.
+- Uses nologo=true and private=true.
+- Saves the output as thumbnail.jpg in the task folder.
+- Retries up to 3 times.
+- Handles Pollinations 530 "frozen" responses by waiting 10 seconds and retrying.
+
+Key Methods
+-----------
+- _generate_with_safe_retry(url, headers, save_path, max_retries=3)
+  Downloads and validates the returned image response.
+- generate_thumbnail(task_folder, title, keywords)
+  Builds the prompt and writes thumbnail.jpg.
+
+Used By
+-------
+main.py, after upload preparation and before YouTube upload.

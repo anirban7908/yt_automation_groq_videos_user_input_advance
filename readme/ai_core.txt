@@ -1,0 +1,48 @@
+YOUTUBE AUTOMATION PROJECT - AI CORE
+====================================
+File: core/ai_core.py
+
+Purpose
+-------
+AIEngine centralizes Groq chat generation for the scraper and script generator. It exposes both synchronous and asynchronous methods and adds retry handling for rate limits or transient API errors.
+
+Main Class
+----------
+AIEngine
+
+Environment Variables
+---------------------
+- GROQ_API_KEY
+  Required for model calls.
+
+Default Model
+-------------
+llama-3.3-70b-versatile
+
+Callers can override the model by passing primary_model when constructing AIEngine.
+
+Key Methods
+-----------
+- generate(system_prompt, user_prompt, require_json=False)
+  Synchronous chat completion wrapper.
+- agenerate(system_prompt, user_prompt, require_json=False)
+  Asynchronous chat completion wrapper.
+
+JSON Mode
+---------
+When require_json=True, AIEngine passes:
+
+response_format={"type": "json_object"}
+
+Retry Behavior
+--------------
+Both generate methods use tenacity with exponential backoff:
+- minimum wait: 3 seconds
+- maximum wait: 60 seconds
+- maximum attempts: 5
+
+Used By
+-------
+- core/scraper.py
+- core/brain.py
+- core/visuals.py

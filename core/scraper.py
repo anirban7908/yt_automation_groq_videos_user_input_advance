@@ -49,6 +49,19 @@ class NewsScraper:
                 "hashtags": "#WarNews #GlobalConflict #Military #BreakingNews #Geopolitics",
                 "voice": "en-US-ChristopherNeural",
             },
+            "space": {
+                "rss_feeds": [
+                    "https://www.space.com/feeds/all",
+                    "https://universetoday.com/feed",
+                    "https://phys.org/rss-feed/space-news/",
+                    "https://www.nasa.gov/feeds/iotd-feed/",
+                    "https://spacenews.com/feed/",
+                    "https://scitechdaily.com/feed/",
+                ],
+                "pexels_style": "realistic",
+                "hashtags": "#Space #Astronomy #Universe #BlackHole #NASA #Cosmos #Astrophysics",
+                "voice": "en-GB-RyanNeural",
+            },
             "tech_ai": {
                 "rss_feeds": [
                     "https://www.theverge.com/rss/index.xml",
@@ -83,6 +96,42 @@ class NewsScraper:
                 "pexels_style": "nature",
                 "hashtags": "#BizarreFacts #WeirdFacts #DidYouKnow #MindBlowing #StrangeFacts #Shocking",
                 "voice": "en-US-ChristopherNeural",
+            },
+            "psychology": {
+                "rss_feeds": [
+                    "https://www.sciencedaily.com/rss/mind_brain/psychology.xml",
+                    "https://www.psypost.org/feed/",
+                    "https://neurosciencenews.com/neuroscience-topics/psychology/feed/",
+                    "https://digest.bps.org.uk/feed/",
+                    "https://www.apa.org/news/psycport/psycport.rss",
+                ],
+                "pexels_style": "human",
+                "hashtags": "#Psychology #BodyLanguage #DarkPsychology #MindTricks #Manipulation #MentalHealth",
+                "voice": "en-US-BrianNeural",
+            },
+            "health_wellness": {
+                "rss_feeds": [
+                    "https://www.sciencedaily.com/rss/health_medicine/",
+                    "https://www.medicalnewstoday.com/rss/medicalnewstoday.xml",
+                    "https://www.healthline.com/rss/",
+                    "https://feeds.webmd.com/rss/rss.aspx?RSSSource=RSS_PUBLIC",
+                    "https://www.who.int/rss-feeds/news-english.xml",
+                ],
+                "pexels_style": "medical",
+                "hashtags": "#Health #Wellness #HealthFacts #MedicalFacts #BodyFacts #HealthTips",
+                "voice": "en-US-JennyNeural",
+            },
+            "animals_nature": {
+                "rss_feeds": [
+                    "https://www.sciencedaily.com/rss/plants_animals/",
+                    "https://feeds.nationalgeographic.com/ng/News/News_Main",
+                    "https://www.livescience.com/feeds/all",
+                    "https://insider.si.edu/category/animals/feed/",
+                    "https://www.earth.com/feed/",
+                ],
+                "pexels_style": "wildlife",
+                "hashtags": "#Animals #Wildlife #Nature #WildAnimals #AnimalFacts #NatureFacts",
+                "voice": "en-AU-WilliamNeural",
             },
         }
 
