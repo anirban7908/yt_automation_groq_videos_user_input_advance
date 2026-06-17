@@ -1,0 +1,194 @@
+PYTHON LEARNING ROADMAP FOR THIS PROJECT
+========================================
+
+Project Type
+------------
+This project is an AI-powered YouTube Shorts automation pipeline. It includes topic discovery, AI script generation, voice generation, visual downloading, video assembly, metadata preparation, uploading, scheduling, and logging.
+
+Because that is a large workflow, the best way to learn and build it is in small versions.
+
+Best Learning Approach
+----------------------
+Do not try to build the full production system first.
+
+Use this order:
+
+Make it work manually.
+Then make it automatic.
+Then make it reliable.
+Then make it scalable.
+
+Version 1: Manual Input To Script
+---------------------------------
+Goal:
+Ask the user for a topic, send it to an AI model, print the generated script, and save it to a text file.
+
+Flow:
+topic -> AI script -> script.txt
+
+You learn:
+- functions
+- input and output
+- environment variables
+- API calls
+- file writing
+
+Suggested files:
+- main.py
+- ai_writer.py
+- .env
+
+Version 2: Add Voice
+--------------------
+Goal:
+Convert the generated script into an audio file.
+
+Flow:
+topic -> AI script -> voice.mp3
+
+You learn:
+- using external Python libraries
+- saving generated files
+- async basics if using Edge TTS
+- error handling
+
+Version 3: Add Simple Visuals
+-----------------------------
+Goal:
+Download a few images for the topic.
+
+Flow:
+topic -> script -> voice -> images
+
+Start with only one image source. Do not use many APIs at first.
+
+You learn:
+- requests
+- downloading files
+- working with folders and paths
+- basic file validation
+
+Version 4: Make A Video
+-----------------------
+Goal:
+Combine the voice and visuals into a video.
+
+Flow:
+images + voice -> video.mp4
+
+You learn:
+- MoviePy
+- media file handling
+- debugging file paths
+- handling runtime errors
+
+Version 5: Add Metadata
+-----------------------
+Goal:
+Generate title, description, tags, and hashtags.
+
+Flow:
+topic -> script -> metadata
+
+You learn:
+- dictionaries
+- JSON
+- structured AI output
+- validating AI responses
+
+Version 6: Add Simple State Tracking
+------------------------------------
+Goal:
+Track what stage the video is in.
+
+Before MongoDB, use a simple JSON file.
+
+Example:
+{
+  "topic": "AI news",
+  "status": "scripted"
+}
+
+You learn:
+- JSON files
+- status flow
+- basic pipeline thinking
+
+Version 7: Add Database
+-----------------------
+Goal:
+Move from a local JSON file to MongoDB or SQLite.
+
+You learn:
+- database connection
+- inserting records
+- updating task status
+- querying records
+
+Version 8: Add Upload
+---------------------
+Goal:
+Upload the finished video to YouTube.
+
+You learn:
+- OAuth
+- API credentials
+- external API errors
+- retry logic
+
+Version 9: Add Scheduler
+------------------------
+Goal:
+Run the pipeline automatically at fixed times.
+
+You learn:
+- scheduling
+- logs
+- long-running programs
+- process monitoring
+
+Recommended Mini Project Structure
+----------------------------------
+mini_youtube_bot/
+    main.py
+    ai_writer.py
+    voice.py
+    video_maker.py
+    output/
+    .env
+
+Simple First Flow
+-----------------
+topic = input("Enter topic: ")
+script = generate_script(topic)
+audio_path = generate_voice(script)
+video_path = make_video(audio_path)
+print("Done:", video_path)
+
+Python Topics To Learn In Order
+-------------------------------
+1. Python basics: variables, functions, lists, dictionaries
+2. File handling: read, write, folders, paths
+3. APIs: requests, JSON, status codes
+4. Environment variables: .env and secrets
+5. Error handling: try and except
+6. Classes: one class per responsibility
+7. Async and concurrency: only after basics
+8. Databases: JSON first, then MongoDB or SQLite
+9. Media processing: MoviePy and Pillow
+10. Automation: scheduler, logs, retries
+
+How This Connects To The Current Project
+----------------------------------------
+Your current project is already a production-style version. It has:
+- scraper.py for topic discovery
+- brain.py for script and metadata generation
+- voice.py for text-to-speech
+- visuals.py for visual sourcing
+- assembler.py for video creation
+- upload_prep.py for metadata packaging
+- uploader.py for YouTube upload
+- scheduler.py for automated runs
+- db_manager.py for MongoDB task state
+
+To understand it better, rebuild a smaller version first. Once the mini version feels easy, the larger project will make much more sense.

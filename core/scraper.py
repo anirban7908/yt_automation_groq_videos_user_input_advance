@@ -5,6 +5,7 @@ import datetime
 import re
 import json
 import os
+import html
 import concurrent.futures
 from bs4 import BeautifulSoup
 from tenacity import retry, wait_exponential, stop_after_attempt
@@ -229,6 +230,184 @@ class NewsScraper:
     # ─────────────────────────────────────────────
     # ROBUST ARTICLE EXTRACTOR
     # ─────────────────────────────────────────────
+    def _normalize_article_line(self, line):
+        line = html.unescape(str(line or "")).strip()
+        line = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", line)
+        line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
+        line = re.sub(r"https?://\S+", " ", line)
+        line = re.sub(r"^\s{0,4}#{1,6}\s*", "", line)
+        line = re.sub(r"^\s{0,4}[-*+]\s+", "", line)
+        line = re.sub(r"\s+", " ", line).strip(" -|")
+        return line
+
+    def _is_noise_line(self, raw_line, clean_line):
+        if not clean_line:
+            return True
+
+        raw = str(raw_line or "").strip()
+        lower = clean_line.lower()
+
+        metadata_prefixes = (
+            "title:",
+            "url source:",
+            "published time:",
+            "markdown content:",
+        )
+        if lower.startswith(metadata_prefixes):
+            return True
+
+        garbage_patterns = (
+            "skip to main content",
+            "sections",
+            "search sections",
+            "subscribe now",
+            "select language",
+            "when autocomplete results are available",
+            "who regional websites",
+            "opens in new window",
+            "featured:",
+            "coverage:",
+            "newsletters",
+            "events calendar",
+            "digital edition",
+            "privacy policy",
+            "terms of use",
+            "cookie policy",
+            "advertisement",
+            "sponsored content",
+            "related articles",
+            "most read",
+            "read more",
+            "share this",
+            "follow us",
+            "contact us",
+            "about us",
+            "all rights reserved",
+        )
+        if any(pattern in lower for pattern in garbage_patterns):
+            return True
+
+        if raw.startswith(("*", "- [", "[![", "![", "[](")):
+            return True
+
+        markdown_link_count = raw.count("](")
+        if markdown_link_count >= 2:
+            return True
+
+        words = re.findall(r"[A-Za-z][A-Za-z'-]+", clean_line)
+        if len(words) < 8:
+            return True
+
+        # Menus often have many short title-case labels but no sentence punctuation.
+        has_sentence_punctuation = bool(re.search(r"[.!?;:]", clean_line))
+        if len(clean_line) < 90 and not has_sentence_punctuation:
+            return True
+
+        if markdown_link_count and len(clean_line) < 140 and not has_sentence_punctuation:
+            return True
+
+        return False
+
+    def _article_quality_score(self, text):
+        words = re.findall(r"[A-Za-z][A-Za-z'-]+", text)
+        sentences = re.findall(r"[.!?](?:\s|$)", text)
+        if len(words) < 50 or len(sentences) < 2:
+            return 0
+
+        lower = text.lower()
+        noise_hits = sum(
+            lower.count(term)
+            for term in (
+                "subscribe",
+                "sections",
+                "newsletter",
+                "privacy policy",
+                "cookie",
+                "opens in new window",
+                "all topics",
+            )
+        )
+        return len(words) + len(sentences) * 20 - noise_hits * 80
+
+    def clean_article_text(self, raw_text, title=""):
+        if not raw_text:
+            return None
+
+        lines = raw_text.splitlines()
+        metadata_title = ""
+        for line in lines[:20]:
+            match = re.match(r"^\s*Title:\s*(.+?)\s*$", line)
+            if match:
+                metadata_title = self._normalize_article_line(match.group(1))
+                break
+
+        article_title = title or metadata_title
+        title_key = re.sub(r"\W+", "", article_title.lower()) if article_title else ""
+
+        body_start = 0
+        for i, line in enumerate(lines):
+            if line.strip().lower() == "markdown content:":
+                body_start = i + 1
+                break
+
+        body_lines = lines[body_start:]
+
+        # Many Jina pages contain the headline once near the top navigation and
+        # again immediately before the article. Prefer the later headline.
+        if title_key:
+            heading_matches = []
+            for i, line in enumerate(body_lines):
+                clean = self._normalize_article_line(line)
+                clean_key = re.sub(r"\W+", "", clean.lower())
+                if clean_key == title_key:
+                    heading_matches.append(i)
+            if len(heading_matches) >= 2:
+                body_lines = body_lines[heading_matches[-1] + 1 :]
+            elif len(heading_matches) == 1:
+                body_lines = body_lines[heading_matches[0] + 1 :]
+
+        paragraphs = []
+        previous_line_was_image = False
+        for raw_line in body_lines:
+            raw_text = str(raw_line or "").strip()
+            if raw_text.startswith(("![", "[![")):
+                previous_line_was_image = True
+                continue
+
+            clean_line = self._normalize_article_line(raw_line)
+
+            if title_key and re.sub(r"\W+", "", clean_line.lower()) == title_key:
+                previous_line_was_image = False
+                continue
+
+            if self._is_noise_line(raw_line, clean_line):
+                if previous_line_was_image and not clean_line:
+                    continue
+                previous_line_was_image = False
+                continue
+
+            if previous_line_was_image and re.search(
+                r"\((?:[^)]*(?:afp|getty|reuters|ap photo|associated press|photo|image|credit|via)[^)]*)\)",
+                clean_line,
+                re.IGNORECASE,
+            ):
+                previous_line_was_image = False
+                continue
+
+            paragraphs.append(clean_line)
+            previous_line_was_image = False
+
+            if len(" ".join(paragraphs)) >= 6000:
+                break
+
+        text = " ".join(paragraphs)
+        text = self.garbage_regex.sub(" ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+
+        if self._article_quality_score(text) <= 0:
+            return None
+
+        return text
 
     @retry(
         wait=wait_exponential(multiplier=2, min=2, max=10), stop=stop_after_attempt(3)
@@ -254,8 +433,9 @@ class NewsScraper:
         # 1. Primary Attempt: Jina AI
         try:
             full_text = self._fetch_jina(url)
-            if full_text and len(full_text) > 300:
-                return full_text[:5000]
+            clean_text = self.clean_article_text(full_text)
+            if clean_text:
+                return clean_text[:5000]
         except Exception as e:
             print(
                 f"      ⚠️ Jina Reader Failed ({e}). Falling back to Native Scrape..."
@@ -267,11 +447,25 @@ class NewsScraper:
             res = requests.get(url, headers=headers, timeout=15)
             if res.status_code == 200:
                 soup = BeautifulSoup(res.content, "html.parser")
+                for tag in soup(
+                    [
+                        "script",
+                        "style",
+                        "nav",
+                        "header",
+                        "footer",
+                        "aside",
+                        "form",
+                        "button",
+                    ]
+                ):
+                    tag.decompose()
                 # Extract text strictly from paragraph tags to avoid nav/footer garbage
                 paragraphs = soup.find_all("p")
                 fallback_text = " ".join([p.get_text() for p in paragraphs])
+                fallback_text = self.clean_article_text(fallback_text)
 
-                if len(fallback_text) > 300:
+                if fallback_text:
                     print("      ✅ Native Scrape Successful.")
                     return fallback_text[:5000]
         except Exception as bs_e:
